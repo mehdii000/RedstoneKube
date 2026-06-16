@@ -39,9 +39,13 @@ Warm pool of ready-to-join pods, each game session **disposable**: when a game e
 that pod is killed and a fresh one is spawned to keep the pool at `POOL_SIZE`.
 On-demand is just `POOL_SIZE = 0`; the pool is not special-cased.
 
-## Controller (Go, stdlib `net/http` + client-go)
+## Controller (Go, stdlib only)
 
-Runs as a pod in namespace `mc` with an in-cluster k8s client.
+Runs as a pod in namespace `mc`. Talks to the k8s API over plain HTTPS using the
+in-cluster ServiceAccount token + CA cert — **no client-go**. `net/http` serves the
+REST API and calls both the k8s API and the velocity-register plugin.
+`ponytail: stdlib k8s REST for a handful of pod CRUD calls; adopt client-go only if pod
+handling outgrows simple list/create/delete/patch.`
 
 ### REST API
 - `POST /allocate` body `{"game": "stub"}` → picks a Ready, unallocated pod of that
