@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -120,4 +121,54 @@ func (k *kube) setAllocated(name string) error {
 		return fmt.Errorf("setAllocated %s: %d", name, code)
 	}
 	return nil
+}
+
+// listPods returns minigame pods of a game, parsed into the controller's Pod view.
+func (k *kube) listPods(game string) ([]Pod, error) {
+	b, code, err := k.do("GET", "/api/v1/namespaces/"+namespace+"/pods?labelSelector=app%3Dminigame,game%3D"+game, "", "")
+	if err != nil {
+		return nil, err
+	}
+	if code != 200 {
+		return nil, fmt.Errorf("listPods: %d %s", code, b)
+	}
+	return parsePodList(b)
+}
+
+// parsePodList maps a k8s PodList into the controller's Pod view.
+func parsePodList(body []byte) ([]Pod, error) {
+	var pl struct {
+		Items []struct {
+			Metadata struct {
+				Name   string            `json:"name"`
+				Labels map[string]string `json:"labels"`
+			} `json:"metadata"`
+			Status struct {
+				PodIP      string `json:"podIP"`
+				Conditions []struct {
+					Type, Status string
+				} `json:"conditions"`
+			} `json:"status"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(body, &pl); err != nil {
+		return nil, err
+	}
+	out := make([]Pod, 0, len(pl.Items))
+	for _, it := range pl.Items {
+		ready := false
+		for _, c := range it.Status.Conditions {
+			if c.Type == "Ready" && c.Status == "True" {
+				ready = true
+			}
+		}
+		out = append(out, Pod{
+			Name:  it.Metadata.Name,
+			Game:  it.Metadata.Labels["game"],
+			IP:    it.Status.PodIP,
+			Ready: ready,
+			Alloc: it.Metadata.Labels["alloc"] == "true",
+		})
+	}
+	return out, nil
 }
