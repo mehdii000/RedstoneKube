@@ -9,7 +9,7 @@ GRADLE := docker run --rm -u $(shell id -u):$(shell id -g) \
   -e GRADLE_USER_HOME=/work/.gradle \
   -v $(PWD)/plugins/lobby-plugin:/work -w /work gradle:jdk21 gradle
 
-.PHONY: cluster down build-velocity build-base lobby-world plugin build-lobby build-controller load apply up smoke
+.PHONY: cluster down build-velocity build-velreg build-base lobby-world plugin build-lobby build-controller load apply up smoke
 
 # ---- cluster ----
 cluster:
@@ -23,10 +23,19 @@ down:
 	kind delete cluster --name $(CLUSTER)
 
 # ---- images ----
-build-velocity:
+VELREG_GRADLE := docker run --rm -u $(shell id -u):$(shell id -g) \
+  -e GRADLE_USER_HOME=/work/.gradle \
+  -v $(PWD)/plugins/velocity-register:/work -w /work gradle:jdk21 gradle
+
+build-velreg:
+	$(VELREG_GRADLE) build
+	cp plugins/velocity-register/build/libs/velocity-register.jar images/velocity/velocity-register.jar
+
+build-velocity: build-velreg
 	docker build -t mc/velocity:dev \
 	  --build-arg JRE_TAG=$(JRE_TAG) --build-arg VELOCITY_URL=$(VELOCITY_URL) \
 	  images/velocity
+	rm -f images/velocity/velocity-register.jar
 
 build-base:
 	docker build -t mc/mc-base:dev \
