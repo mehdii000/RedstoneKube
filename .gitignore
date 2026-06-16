@@ -1,0 +1,5 @@
+plugins/lobby-plugin/.gradle/
+plugins/lobby-plugin/build/
+# build-time copies into the lobby image context
+images/lobby/lobby-plugin.jar
+images/lobby/lobby.slime
