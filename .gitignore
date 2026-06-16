@@ -1,5 +1,8 @@
-plugins/lobby-plugin/.gradle/
-plugins/lobby-plugin/build/
-# build-time copies into the lobby image context
+plugins/*/.gradle/
+plugins/*/build/
+# build-time copies into image contexts
 images/lobby/lobby-plugin.jar
 images/lobby/lobby.slime
+images/velocity/velocity-register.jar
+images/minigame-stub/stub-plugin.jar
+images/minigame-stub/game.slime
