@@ -9,7 +9,7 @@ GRADLE := docker run --rm -u $(shell id -u):$(shell id -g) \
   -e GRADLE_USER_HOME=/work/.gradle \
   -v $(PWD)/plugins/lobby-plugin:/work -w /work gradle:jdk21 gradle
 
-.PHONY: cluster down build-velocity build-base lobby-world plugin build-lobby load apply up smoke
+.PHONY: cluster down build-velocity build-base lobby-world plugin build-lobby build-controller load apply up smoke
 
 # ---- cluster ----
 cluster:
@@ -46,10 +46,14 @@ build-lobby: build-base plugin
 	docker build -t mc/lobby:dev images/lobby
 	rm -f images/lobby/lobby-plugin.jar images/lobby/lobby.slime
 
+build-controller:
+	docker build -f images/controller/Dockerfile -t mc/controller:dev .
+
 # ---- deploy ----
-load: build-velocity build-lobby
+load: build-velocity build-lobby build-controller
 	kind load docker-image mc/velocity:dev --name $(CLUSTER)
 	kind load docker-image mc/lobby:dev --name $(CLUSTER)
+	kind load docker-image mc/controller:dev --name $(CLUSTER)
 
 apply:
 	kubectl -n mc create secret generic velocity-forwarding \
