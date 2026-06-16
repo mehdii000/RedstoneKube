@@ -1,3 +1,4 @@
+# Slice 1: the only real game is the stub placeholder.
+controller: http://controller.mc.svc.cluster.local:8080
 minigames:
-  - { name: BedWars, material: RED_BED, target: bedwars }
-  - { name: SkyWars, material: FEATHER, target: skywars }
+  - { name: Stub Game, material: GRASS_BLOCK, target: stub }
