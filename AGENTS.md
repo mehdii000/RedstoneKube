@@ -15,6 +15,25 @@ spec → plan → implementation.
   Lobby plugin: invuln + flight + compass GUI (minigame click is a stub).
 - **Slice 1 (Controller + dynamic registration) — NEXT, not started.**
 
+## Roadmap
+
+Build in dependency order, one slice per session:
+
+- **Slice 1 — Controller + dynamic registration** (NEXT). Go REST API → k8s → spawn/kill
+  minigame pods → register with Velocity → wire the compass stub to send players.
+- **Slice 2 — Minigame image convention.** `FROM mc-base` + plugin + baked `.slime`, declared
+  to the controller. Do NOT build a scaffolding/templating generator until 2-3 games hurt by hand.
+- **Slice 3 — WebUI.** Read-only dashboard over the controller's API. Invents nothing new.
+
+After Slice 3 you have a working Hypixel-lite. Everything below was **deliberately deferred** —
+build each only when a concrete need shows up, each as its own spec→plan→session. Do not write
+detailed plans for them in advance (that's the bloat ponytail exists to prevent):
+
+- Multi-replica Velocity registry sync — when one proxy isn't enough (Slice 1 won't hardcode "1").
+- Central world store (Mongo/S3) — when worlds need editing without an image rebuild.
+- Global data / persistence (stats, currencies) — first stateful piece; needs its own brainstorm.
+- Observability + autoscaling — when game volume demands it.
+
 ## Where to look
 
 | You want… | Read |
