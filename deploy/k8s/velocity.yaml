@@ -11,7 +11,11 @@ spec:
         - name: velocity
           image: mc/velocity:dev
           imagePullPolicy: IfNotPresent
-          ports: [ { containerPort: 25565 } ]
+          ports: [ { containerPort: 25565 }, { containerPort: 8080 } ]
+          env:
+            - name: CONTROLLER_TOKEN
+              valueFrom:
+                secretKeyRef: { name: controller-token, key: controller.token }
           volumeMounts:
             - { name: secret, mountPath: /secret, readOnly: true }
           readinessProbe:
@@ -30,4 +34,6 @@ metadata: { name: velocity, namespace: mc }
 spec:
   type: LoadBalancer
   selector: { app: velocity }
-  ports: [ { port: 25565, targetPort: 25565, protocol: TCP } ]
+  ports:
+    - { name: mc, port: 25565, targetPort: 25565, protocol: TCP }
+    - { name: register, port: 8080, targetPort: 8080, protocol: TCP }

@@ -80,7 +80,10 @@ apply:
 	kubectl -n mc create secret generic velocity-forwarding \
 	  --from-literal=forwarding.secret=$$(openssl rand -hex 24) \
 	  --dry-run=client -o yaml | kubectl apply -f -
-	kubectl apply -f deploy/k8s/velocity.yaml -f deploy/k8s/lobby.yaml
+	kubectl -n mc create secret generic controller-token \
+	  --from-literal=controller.token=$$(openssl rand -hex 24) \
+	  --dry-run=client -o yaml | kubectl apply -f -
+	kubectl apply -f deploy/k8s/velocity.yaml -f deploy/k8s/lobby.yaml -f deploy/k8s/controller.yaml
 
 up: cluster load apply
 	@echo "waiting for LoadBalancer IP (Ctrl-C once assigned)..."
