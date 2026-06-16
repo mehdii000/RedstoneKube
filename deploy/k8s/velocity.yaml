@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: velocity, namespace: mc }
+spec:
+  replicas: 1   # ponytail: 1 now; design assumes N. Multi-replica registry sync is Slice 1.
+  selector: { matchLabels: { app: velocity } }
+  template:
+    metadata: { labels: { app: velocity } }
+    spec:
+      containers:
+        - name: velocity
+          image: mc/velocity:dev
+          imagePullPolicy: IfNotPresent
+          ports: [ { containerPort: 25565 } ]
+          volumeMounts:
+            - { name: secret, mountPath: /secret, readOnly: true }
+          readinessProbe:
+            tcpSocket: { port: 25565 }
+            initialDelaySeconds: 8
+            periodSeconds: 5
+      volumes:
+        - name: secret
+          secret:
+            secretName: velocity-forwarding
+            items: [ { key: forwarding.secret, path: forwarding.secret } ]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: velocity, namespace: mc }
+spec:
+  type: LoadBalancer
+  selector: { app: velocity }
+  ports: [ { port: 25565, targetPort: 25565, protocol: TCP } ]
