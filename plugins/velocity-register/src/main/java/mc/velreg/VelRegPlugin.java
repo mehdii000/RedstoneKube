@@ -24,20 +24,28 @@ public final class VelRegPlugin {
     // Adapt the live proxy to the Registry interface.
     Registry reg = new Registry() {
       public void register(String name, String address) {
-        proxy.unregisterServer(new ServerInfo(name, parse(address))); // drop stale, then add (upsert)
+        unregister(name); // guarded drop-if-present, then add — a true idempotent upsert.
         proxy.registerServer(new ServerInfo(name, parse(address)));
       }
       public boolean unregister(String name) {
+        // Velocity's unregisterServer throws if the name is absent, so check first.
         return proxy.getServer(name).map(s -> { proxy.unregisterServer(s.getServerInfo()); return true; }).orElse(false);
       }
     };
 
     HttpServer http = HttpServer.create(new InetSocketAddress("0.0.0.0", 8080), 0);
     http.createContext("/servers", ex -> {
-      String body;
-      try (InputStream in = ex.getRequestBody()) { body = new String(in.readAllBytes(), StandardCharsets.UTF_8); }
-      int code = ServersHandler.handle(ex.getRequestMethod(), ex.getRequestURI().getPath(),
-          ex.getRequestHeaders().getFirst("Authorization"), body, token, reg);
+      int code;
+      try {
+        String body;
+        try (InputStream in = ex.getRequestBody()) { body = new String(in.readAllBytes(), StandardCharsets.UTF_8); }
+        code = ServersHandler.handle(ex.getRequestMethod(), ex.getRequestURI().getPath(),
+            ex.getRequestHeaders().getFirst("Authorization"), body, token, reg);
+      } catch (Throwable t) {
+        // Never leak an exception as a closed connection (EOF) to the controller.
+        t.printStackTrace();
+        code = 500;
+      }
       ex.sendResponseHeaders(code, -1);
       ex.close();
     });
