@@ -23,6 +23,10 @@ public final class LobbyPlugin extends JavaPlugin implements Listener {
 
   @EventHandler public void onJoin(PlayerJoinEvent e) {
     Player p = e.getPlayer();
+    // ponytail: hardcoded "lobby" world; the default anvil world stays a throwaway main world
+    // until ASP exposes a slime-as-main-world override.
+    World lobby = Bukkit.getWorld("lobby");
+    if (lobby != null) p.teleport(lobby.getSpawnLocation());
     p.setInvulnerable(true);
     p.setAllowFlight(true);
     p.setFlying(true);
