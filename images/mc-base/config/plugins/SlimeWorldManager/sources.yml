@@ -1,0 +1,10 @@
+file:
+    path: /worlds
+mysql:
+    enabled: false
+mongodb:
+    enabled: false
+redis:
+    enabled: false
+api:
+    enabled: false

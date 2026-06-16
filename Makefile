@@ -31,6 +31,7 @@ build-velocity:
 build-base:
 	docker build -t mc/mc-base:dev \
 	  --build-arg JRE_TAG=$(JRE_TAG) --build-arg ASP_URL=$(ASP_URL) \
+	  --build-arg ASP_PLUGIN_URL=$(ASP_PLUGIN_URL) \
 	  images/mc-base
 
 lobby-world:
