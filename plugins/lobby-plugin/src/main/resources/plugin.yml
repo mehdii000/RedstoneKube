@@ -1,0 +1,4 @@
+name: LobbyPlugin
+version: 0.1.0
+main: mc.lobby.LobbyPlugin
+api-version: '1.21'
