@@ -9,7 +9,7 @@ GRADLE := docker run --rm -u $(shell id -u):$(shell id -g) \
   -e GRADLE_USER_HOME=/work/.gradle \
   -v $(PWD)/plugins/lobby-plugin:/work -w /work gradle:jdk21 gradle
 
-.PHONY: cluster down build-velocity build-velreg build-base lobby-world plugin build-lobby build-controller load apply up smoke
+.PHONY: cluster down build-velocity build-velreg build-base lobby-world plugin build-lobby build-controller build-minigame-stub load apply up smoke
 
 # ---- cluster ----
 cluster:
@@ -58,11 +58,23 @@ build-lobby: build-base plugin
 build-controller:
 	docker build -f images/controller/Dockerfile -t mc/controller:dev .
 
+STUB_GRADLE := docker run --rm -u $(shell id -u):$(shell id -g) \
+  -e GRADLE_USER_HOME=/work/.gradle \
+  -v $(PWD)/plugins/stub-game:/work -w /work gradle:jdk21 gradle
+
+build-minigame-stub: build-base
+	$(STUB_GRADLE) build
+	cp plugins/stub-game/build/libs/stub-plugin.jar images/minigame-stub/stub-plugin.jar
+	cp worlds/lobby.slime images/minigame-stub/game.slime
+	docker build -t mc/minigame-stub:dev images/minigame-stub
+	rm -f images/minigame-stub/stub-plugin.jar images/minigame-stub/game.slime
+
 # ---- deploy ----
-load: build-velocity build-lobby build-controller
+load: build-velocity build-lobby build-controller build-minigame-stub
 	kind load docker-image mc/velocity:dev --name $(CLUSTER)
 	kind load docker-image mc/lobby:dev --name $(CLUSTER)
 	kind load docker-image mc/controller:dev --name $(CLUSTER)
+	kind load docker-image mc/minigame-stub:dev --name $(CLUSTER)
 
 apply:
 	kubectl -n mc create secret generic velocity-forwarding \

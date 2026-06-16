@@ -1,0 +1,7 @@
+name: StubGame
+version: 0.1.0
+main: mc.stub.StubPlugin
+api-version: '1.21'
+commands:
+  endgame:
+    description: End this stub game and recycle the pod.
