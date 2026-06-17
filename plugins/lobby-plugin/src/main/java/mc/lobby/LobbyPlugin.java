@@ -19,6 +19,7 @@ public final class LobbyPlugin extends JavaPlugin implements Listener {
     var raw = (List<Map<String,Object>>) (List<?>) getConfig().getMapList("minigames");
     entries = Menu.parse(raw);
     getServer().getPluginManager().registerEvents(this, this);
+    getServer().getMessenger().registerOutgoingPluginChannel(this, "BungeeCord");
   }
 
   @EventHandler public void onJoin(PlayerJoinEvent e) {
@@ -58,8 +59,42 @@ public final class LobbyPlugin extends JavaPlugin implements Listener {
     if (!TITLE.equals(e.getView().getTitle())) return;
     e.setCancelled(true);
     if (e.getCurrentItem() == null) return;
-    // ponytail: stub — Slice 1 sends the player via Velocity plugin-messaging ("Connect").
-    e.getWhoClicked().sendMessage(ChatColor.GRAY + "Minigame servers arrive in Slice 1.");
-    e.getWhoClicked().closeInventory();
+    int slot = e.getRawSlot();
+    if (slot < 0 || slot >= entries.size()) return;
+    String game = entries.get(slot).target();
+    Player p = (Player) e.getWhoClicked();
+    p.closeInventory();
+    String base = getConfig().getString("controller", "http://controller.mc.svc.cluster.local:8080");
+    // async: never block the main thread on the allocate HTTP call.
+    getServer().getScheduler().runTaskAsynchronously(this, () -> {
+      String server = allocate(base, game);
+      if (server == null) {
+        p.sendMessage(ChatColor.RED + "No " + game + " server available, try again.");
+        return;
+      }
+      getServer().getScheduler().runTask(this, () -> connect(p, server));
+    });
+  }
+
+  private String allocate(String base, String game) {
+    try {
+      var resp = java.net.http.HttpClient.newHttpClient().send(
+          java.net.http.HttpRequest.newBuilder(java.net.URI.create(base + "/allocate"))
+              .header("Content-Type", "application/json")
+              .POST(java.net.http.HttpRequest.BodyPublishers.ofString("{\"game\":\"" + game + "\"}"))
+              .build(),
+          java.net.http.HttpResponse.BodyHandlers.ofString());
+      return resp.statusCode() == 200 ? Allocate.parseServer(resp.body()) : null;
+    } catch (Exception ex) {
+      getLogger().warning("allocate failed: " + ex.getMessage());
+      return null;
+    }
+  }
+
+  private void connect(Player p, String server) {
+    com.google.common.io.ByteArrayDataOutput out = com.google.common.io.ByteStreams.newDataOutput();
+    out.writeUTF("Connect");
+    out.writeUTF(server);
+    p.sendPluginMessage(this, "BungeeCord", out.toByteArray());
   }
 }

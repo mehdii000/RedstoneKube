@@ -13,15 +13,19 @@ spec → plan → implementation.
 - **Slice 0 (Skeleton) — DONE, merged to `main`.** kind + cloud-provider-kind LoadBalancer →
   custom Velocity proxy → custom Advanced Slime Paper lobby with a baked `.slime` world.
   Lobby plugin: invuln + flight + compass GUI (minigame click is a stub).
-- **Slice 1 (Controller + dynamic registration) — NEXT, not started.**
+- **Slice 1 (Controller + dynamic registration) — DONE, merged to `main`.** Go controller
+  owns a warm pool of bare minigame Pods (k8s REST, no client-go), self-recycled via
+  `POST /done`; velocity-register plugin registers backends live; compass click allocates
+  + Connects. Placeholder game: `mc/minigame-stub:dev`.
+- **Slice 2 (Minigame image convention) — NEXT, not started.**
 
 ## Roadmap
 
 Build in dependency order, one slice per session:
 
-- **Slice 1 — Controller + dynamic registration** (NEXT). Go REST API → k8s → spawn/kill
-  minigame pods → register with Velocity → wire the compass stub to send players.
-- **Slice 2 — Minigame image convention.** `FROM mc-base` + plugin + baked `.slime`, declared
+- **Slice 1 — Controller + dynamic registration** (DONE). Go REST API → k8s → spawn/kill
+  minigame pods → register with Velocity → wire the compass to send players.
+- **Slice 2 — Minigame image convention** (NEXT). `FROM mc-base` + plugin + baked `.slime`, declared
   to the controller. Do NOT build a scaffolding/templating generator until 2-3 games hurt by hand.
 - **Slice 3 — WebUI.** Read-only dashboard over the controller's API. Invents nothing new.
 
@@ -38,7 +42,7 @@ detailed plans for them in advance (that's the bloat ponytail exists to prevent)
 
 | You want… | Read |
 |---|---|
-| Next-session entry point + carryover facts/gotchas | `docs/superpowers/SLICE-1-HANDOFF.md` |
+| Next-session entry point + carryover facts/gotchas | `docs/superpowers/SLICE-2-HANDOFF.md` |
 | What was designed and why | `docs/superpowers/specs/` |
 | Task-by-task build plans | `docs/superpowers/plans/` |
 | How to run it locally | `README.md` |

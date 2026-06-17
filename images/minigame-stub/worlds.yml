@@ -1,0 +1,13 @@
+# Loaded by SWM at startup; readOnly so the minigame stays disposable.
+worlds:
+  game:
+    source: file
+    difficulty: peaceful
+    spawn: 0, -60, 0
+    allowMonsters: false
+    allowAnimals: false
+    loadOnStartup: true
+    readOnly: true
+    saveBlockTicks: false
+    saveFluidTicks: false
+    savePoi: false

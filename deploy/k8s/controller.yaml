@@ -1,0 +1,58 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata: { name: controller, namespace: mc }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: { name: controller, namespace: mc }
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: { name: controller, namespace: mc }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: controller }
+subjects:
+  - { kind: ServiceAccount, name: controller, namespace: mc }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: controller, namespace: mc }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: controller } }
+  template:
+    metadata: { labels: { app: controller } }
+    spec:
+      serviceAccountName: controller
+      containers:
+        - name: controller
+          image: mc/controller:dev
+          imagePullPolicy: IfNotPresent
+          ports: [ { containerPort: 8080 } ]
+          env:
+            - { name: GAME, value: stub }
+            - { name: POOL_SIZE, value: "1" }
+            - { name: MINIGAME_IMAGE, value: mc/minigame-stub:dev }
+            - { name: VELOCITY_REGISTER_URL, value: http://velocity.mc.svc.cluster.local:8080 }
+            - { name: CONTROLLER_URL, value: http://controller.mc.svc.cluster.local:8080 }
+          volumeMounts:
+            - { name: token, mountPath: /secret, readOnly: true }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+      volumes:
+        - name: token
+          secret:
+            secretName: controller-token
+            items: [ { key: controller.token, path: controller.token } ]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: controller, namespace: mc }
+spec:
+  selector: { app: controller }
+  ports: [ { port: 8080, targetPort: 8080 } ]
