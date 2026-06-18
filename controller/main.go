@@ -8,20 +8,18 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
-// Controller owns the warm pool. Dependencies are func fields so tests inject fakes
-// without interfaces or a real cluster.
+// Controller owns the warm pool across all configured games. Dependencies are
+// func fields so tests inject fakes without interfaces or a real cluster.
 type Controller struct {
-	game, image string
-	poolSize    int
+	games []Game
 
 	listPods     func(game string) ([]Pod, error)
-	createPod    func(name string) error
+	createPod    func(name, game, image string) error
 	deletePod    func(name string) error
 	setAllocated func(name string) error
 	register     func(name, addr string) error
@@ -37,10 +35,15 @@ func (c *Controller) handleAllocate(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewDecoder(r.Body).Decode(&body)
 	if body.Game == "" {
-		body.Game = c.game
+		http.Error(w, "game required", http.StatusBadRequest)
+		return
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if findGame(c.games, body.Game) == nil {
+		http.Error(w, "unknown game", http.StatusNotFound)
+		return
+	}
 	pods, err := c.listPods(body.Game)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
@@ -70,7 +73,7 @@ func (c *Controller) handleDone(w http.ResponseWriter, r *http.Request) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	pods, err := c.listPods(c.game)
+	pods, err := c.listPods("") // all minigames — id may belong to any game
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
@@ -96,25 +99,28 @@ func (c *Controller) handleDone(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// reconcile refills the pool and syncs Velocity registration. Called on a ticker.
+// reconcile refills every game's pool and syncs Velocity registration. On a ticker.
 func (c *Controller) reconcile() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	pods, err := c.listPods(c.game)
-	if err != nil {
-		log.Printf("reconcile: list: %v", err)
-		return
-	}
-	// refill
-	for i := 0; i < needed(pods, c.poolSize); i++ {
-		name := fmt.Sprintf("mg-%s-%s", c.game, randSuffix())
-		if err := c.createPod(name); err != nil {
-			log.Printf("reconcile: create %s: %v", name, err)
+	var all []Pod
+	for _, g := range c.games {
+		pods, err := c.listPods(g.Name)
+		if err != nil {
+			log.Printf("reconcile: list %s: %v", g.Name, err)
+			continue
 		}
+		for i := 0; i < needed(pods, g.PoolSize); i++ {
+			name := fmt.Sprintf("mg-%s-%s", g.Name, randSuffix())
+			if err := c.createPod(name, g.Name, g.Image); err != nil {
+				log.Printf("reconcile: create %s: %v", name, err)
+			}
+		}
+		all = append(all, pods...)
 	}
-	// registration sync: register newly-Ready, unregister vanished
+	// registration sync across all games: register newly-Ready, unregister vanished.
 	seen := map[string]bool{}
-	for _, p := range pods {
+	for _, p := range all {
 		seen[p.Name] = true
 		if p.Ready && !c.registered[p.Name] {
 			if err := c.register(p.Name, p.IP+":25565"); err != nil {
@@ -141,11 +147,18 @@ func randSuffix() string {
 }
 
 func main() {
-	game := envOr("GAME", "stub")
-	image := envOr("MINIGAME_IMAGE", "mc/minigame-stub:dev")
-	poolSize, _ := strconv.Atoi(envOr("POOL_SIZE", "1"))
 	velBase := envOr("VELOCITY_REGISTER_URL", "http://velocity.mc.svc.cluster.local:8080")
 	controllerURL := envOr("CONTROLLER_URL", "http://controller.mc.svc.cluster.local:8080")
+	gamesPath := envOr("GAMES_CONFIG", "/config/games.json")
+
+	gamesJSON, err := os.ReadFile(gamesPath)
+	if err != nil {
+		log.Fatalf("read games config %s: %v", gamesPath, err)
+	}
+	games, err := parseGames(gamesJSON)
+	if err != nil {
+		log.Fatalf("games config: %v", err)
+	}
 
 	k, err := newKube()
 	if err != nil {
@@ -158,9 +171,9 @@ func main() {
 	v := newVel(velBase, strings.TrimSpace(string(token)))
 
 	c := &Controller{
-		game: game, image: image, poolSize: poolSize,
+		games:        games,
 		listPods:     k.listPods,
-		createPod:    func(name string) error { return k.createPod(name, game, image, controllerURL) },
+		createPod:    func(name, game, image string) error { return k.createPod(name, game, image, controllerURL) },
 		deletePod:    k.deletePod,
 		setAllocated: k.setAllocated,
 		register:     v.register,
@@ -177,7 +190,7 @@ func main() {
 	http.HandleFunc("/allocate", c.handleAllocate)
 	http.HandleFunc("/instances/", c.handleDone)
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
-	log.Printf("controller up: game=%s pool=%d", game, poolSize)
+	log.Printf("controller up: %d games", len(c.games))
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 

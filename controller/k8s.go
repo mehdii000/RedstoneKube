@@ -123,9 +123,14 @@ func (k *kube) setAllocated(name string) error {
 	return nil
 }
 
-// listPods returns minigame pods of a game, parsed into the controller's Pod view.
+// listPods returns minigame pods, parsed into the controller's Pod view.
+// An empty game returns ALL minigames (used by handleDone to validate any id).
 func (k *kube) listPods(game string) ([]Pod, error) {
-	b, code, err := k.do("GET", "/api/v1/namespaces/"+namespace+"/pods?labelSelector=app%3Dminigame,game%3D"+game, "", "")
+	sel := "app%3Dminigame"
+	if game != "" {
+		sel += ",game%3D" + game
+	}
+	b, code, err := k.do("GET", "/api/v1/namespaces/"+namespace+"/pods?labelSelector="+sel, "", "")
 	if err != nil {
 		return nil, err
 	}
