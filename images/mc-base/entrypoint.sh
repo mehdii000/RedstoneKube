@@ -13,6 +13,14 @@ if [ -f /server/config/paper-global.yml ]; then
   sed -i "s|__SECRET__|${SECRET}|" /server/config/paper-global.yml
 fi
 
+# Behind Velocity modern forwarding the backend must NOT do its own auth, or Velocity
+# rejects it with "Backend server is online-mode!". Paper merges missing keys, keeping this.
+if [ -f /server/server.properties ] && grep -q '^online-mode=' /server/server.properties; then
+  sed -i 's/^online-mode=.*/online-mode=false/' /server/server.properties
+else
+  echo 'online-mode=false' >> /server/server.properties
+fi
+
 cd /server
 # Aikar flags: https://docs.papermc.io/paper/aikar-flags
 # ponytail: 1-2G heap hardcoded; make it an env knob only when a minigame needs a different size.
