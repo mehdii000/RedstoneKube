@@ -21,8 +21,12 @@ spec → plan → implementation.
   (`minigames` ConfigMap → JSON), a second real game (`mc/minigame-parkour:dev`, a
   procedurally-generated void-world parkour that auto-`/done`s on win), and a written
   convention (`docs/minigame-convention.md`). No generator (deferred per roadmap).
-- **Slice 3 (WebUI — detailed metrics/observability) — NEXT, not started.** Startup times, pool
-  counts, per-instance TPS/health. See `docs/superpowers/SLICE-3-HANDOFF.md`.
+- **Slice 3 (WebUI — detailed metrics/observability) — DONE.** SSE-pushed dashboard over the
+  platform: a shared `mc-metrics` plugin baked into mc-base serves `/metrics` (TPS/MSPT/players/
+  uptime/jvmStartup) on `:9100`; the controller scrapes it and adds read endpoints `GET /snapshot`,
+  `GET /stream` (SSE), `GET /instances/{id}/logs` (k8s log proxy, `pods/log` RBAC), and `GET /ui/`
+  (embedded single page). Lifecycle state+reason and startup time are derived from the pod object.
+  Deferred: `POST /command`. See `docs/superpowers/SLICE-3-HANDOFF.md`.
 
 ## Roadmap
 
@@ -50,7 +54,7 @@ detailed plans for them in advance (that's the bloat ponytail exists to prevent)
 
 | You want… | Read |
 |---|---|
-| Next-session entry point + carryover facts/gotchas | `docs/superpowers/SLICE-2-HANDOFF.md` |
+| Next-session entry point + carryover facts/gotchas | `docs/superpowers/SLICE-3-HANDOFF.md` |
 | What was designed and why | `docs/superpowers/specs/` |
 | Task-by-task build plans | `docs/superpowers/plans/` |
 | How to run it locally | `README.md` |
