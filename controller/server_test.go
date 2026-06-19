@@ -159,3 +159,15 @@ func TestHandleLogs(t *testing.T) {
 		t.Fatalf("code=%d body=%q", rec.Code, rec.Body.String())
 	}
 }
+
+func TestAllocFailureCounted(t *testing.T) {
+	c, _ := newTestController(nil) // no pods => no allocatable => 503
+	rec := httptest.NewRecorder()
+	c.handleAllocate(rec, httptest.NewRequest("POST", "/allocate", strings.NewReader(`{"game":"stub"}`)))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("code = %d, want 503", rec.Code)
+	}
+	if c.allocFails["stub"] != 1 {
+		t.Errorf("allocFails[stub] = %d, want 1", c.allocFails["stub"])
+	}
+}

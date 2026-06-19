@@ -58,6 +58,7 @@ func (c *Controller) handleAllocate(w http.ResponseWriter, r *http.Request) {
 	}
 	p := pickAllocatable(pods, body.Game)
 	if p == nil {
+		c.allocFails[body.Game]++
 		http.Error(w, "no ready instance", http.StatusServiceUnavailable)
 		return
 	}
