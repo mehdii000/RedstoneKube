@@ -1,6 +1,7 @@
 plugins/*/.gradle/
 plugins/*/build/
 # build-time copies into image contexts
+images/mc-base/metrics-plugin.jar
 images/lobby/lobby-plugin.jar
 images/lobby/lobby.slime
 images/velocity/velocity-register.jar

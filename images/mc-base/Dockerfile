@@ -5,12 +5,13 @@ ARG ASP_PLUGIN_URL
 RUN useradd -r mc && mkdir -p /server/plugins /worlds /opt/config && chown -R mc /server /worlds
 ADD ${ASP_URL} /opt/server.jar
 ADD ${ASP_PLUGIN_URL} /server/plugins/asp-plugin.jar
+COPY metrics-plugin.jar /server/plugins/metrics-plugin.jar
 COPY config/ /opt/config/
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh && chmod 0644 /opt/server.jar /server/plugins/asp-plugin.jar \
+RUN chmod +x /entrypoint.sh && chmod 0644 /opt/server.jar /server/plugins/asp-plugin.jar /server/plugins/metrics-plugin.jar \
  && chown -R mc /server/plugins \
  && echo "eula=true" > /server/eula.txt && chown mc /server/eula.txt
 USER mc
 WORKDIR /server
-EXPOSE 25565
+EXPOSE 25565 9100
 ENTRYPOINT ["/entrypoint.sh"]
