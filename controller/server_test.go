@@ -144,3 +144,18 @@ func TestReconcileRefillsEachGame(t *testing.T) {
 		t.Errorf("created with wrong game/image: %v", rec.created)
 	}
 }
+
+func TestHandleLogs(t *testing.T) {
+	c, _ := newTestController([]Pod{{Name: "mg-stub-1", Game: "stub"}})
+	c.podLogs = func(name string, tail int) (string, error) {
+		if name != "mg-stub-1" || tail != 50 {
+			t.Fatalf("podLogs(%q,%d)", name, tail)
+		}
+		return "line1\nline2\n", nil
+	}
+	rec := httptest.NewRecorder()
+	c.handleInstances(rec, httptest.NewRequest("GET", "/instances/mg-stub-1/logs?tail=50", nil))
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "line2") {
+		t.Fatalf("code=%d body=%q", rec.Code, rec.Body.String())
+	}
+}

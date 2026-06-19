@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -68,6 +69,40 @@ func (c *Controller) handleAllocate(w http.ResponseWriter, r *http.Request) {
 		"server":  p.Name,
 		"address": p.IP + ":25565",
 	})
+}
+
+// handleInstances routes /instances/{id}/{done|logs}.
+func (c *Controller) handleInstances(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/instances/")
+	switch {
+	case strings.HasSuffix(rest, "/done"):
+		c.handleDone(w, r)
+	case strings.HasSuffix(rest, "/logs"):
+		c.handleLogs(w, r)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func (c *Controller) handleLogs(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/instances/"), "/logs")
+	if id == "" || strings.Contains(id, "/") {
+		http.Error(w, "bad instance id", http.StatusBadRequest)
+		return
+	}
+	tail := 200
+	if v := r.URL.Query().Get("tail"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			tail = n
+		}
+	}
+	out, err := c.podLogs(id, tail)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Write([]byte(out))
 }
 
 func (c *Controller) handleDone(w http.ResponseWriter, r *http.Request) {
@@ -203,7 +238,7 @@ func main() {
 	}()
 
 	http.HandleFunc("/allocate", c.handleAllocate)
-	http.HandleFunc("/instances/", c.handleDone)
+	http.HandleFunc("/instances/", c.handleInstances)
 	http.HandleFunc("/snapshot", c.handleSnapshot)
 	http.HandleFunc("/stream", c.handleStream)
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
