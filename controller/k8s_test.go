@@ -18,3 +18,34 @@ func TestPodManifest(t *testing.T) {
 		}
 	}
 }
+
+func TestParsePodListLifecycleFields(t *testing.T) {
+	body := []byte(`{"items":[{
+	  "metadata":{"name":"mg-parkour-1","labels":{"game":"parkour","alloc":"true"},
+	    "creationTimestamp":"2026-06-19T10:00:00Z","deletionTimestamp":"2026-06-19T10:05:00Z"},
+	  "status":{"podIP":"10.0.0.5",
+	    "conditions":[{"type":"Ready","status":"True","lastTransitionTime":"2026-06-19T10:00:07Z"}],
+	    "containerStatuses":[{"restartCount":3,
+	      "state":{"waiting":{"reason":"CrashLoopBackOff","message":"back-off restarting"}},
+	      "lastState":{"terminated":{"reason":"Error","exitCode":1,"message":"boom"}}}]}}]}`)
+	pods, err := parsePodList(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := pods[0]
+	if p.Created.IsZero() || p.ReadyAt.IsZero() {
+		t.Fatalf("timestamps not parsed: created=%v readyAt=%v", p.Created, p.ReadyAt)
+	}
+	if got := p.ReadyAt.Sub(p.Created).Seconds(); got != 7 {
+		t.Errorf("startup = %v, want 7", got)
+	}
+	if !p.Deleting {
+		t.Error("Deleting should be true")
+	}
+	if p.Restarts != 3 || p.WaitReason != "CrashLoopBackOff" {
+		t.Errorf("restarts=%d waitReason=%q", p.Restarts, p.WaitReason)
+	}
+	if p.TermReason != "Error" || p.TermExit != 1 {
+		t.Errorf("term=%q exit=%d", p.TermReason, p.TermExit)
+	}
+}
