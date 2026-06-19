@@ -205,6 +205,7 @@ func main() {
 	http.HandleFunc("/allocate", c.handleAllocate)
 	http.HandleFunc("/instances/", c.handleDone)
 	http.HandleFunc("/snapshot", c.handleSnapshot)
+	http.HandleFunc("/stream", c.handleStream)
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
 	log.Printf("controller up: %d games", len(c.games))
 	log.Fatal(http.ListenAndServe(":8080", nil))
