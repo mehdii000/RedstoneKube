@@ -25,6 +25,25 @@ the state at all times." So treat this as an **observability** slice, design aro
   load time), scraped by the controller and aggregated; vs. per-pod Prometheus + Grafana (heavier,
   probably over-engineered for this — ponytail will push back). Recommended lazy path: a shared
   mc-base metrics plugin + controller aggregates + one static page. Decide in brainstorming.
+- **Lifecycle state + reason (per instance):** show booting / running / crashing / stopping **with
+  the why**, directly. This is mostly **free** — surface what k8s already knows, no bespoke state
+  machine. The controller already hits the k8s pod API; parse more of the pod status it fetches:
+  `status.phase`, the `Ready` condition, `containerStatuses[].state.waiting|.terminated`
+  (`.reason` / `.message` / `.exitCode`), `restartCount` (crashing/CrashLoopBackOff), and
+  `metadata.deletionTimestamp` (= Terminating/stopping). For richer reasons, read pod **Events**
+  (`GET /api/v1/namespaces/mc/events?fieldSelector=involvedObject.name=<pod>`). Map these to the
+  four states in one small pure function (unit-testable, like `needed`/`pickAllocatable`).
+- **Logs in the UI:** controller proxies the k8s pod log endpoint
+  (`GET /api/v1/namespaces/mc/pods/<pod>/log?tailLines=N`) via the SA token it already has; add
+  `pods/log` (get) to the controller Role (RBAC). A tail-N snapshot is the lazy version; live
+  streaming (`follow=true` + SSE/websocket) is a later upgrade, not v1.
+- **Send commands (optional — user said "up to you", and it's read-WRITE so likely a follow-up,
+  not the read-only observability core):** needs a channel into the running server. Lazy + reuses
+  the metrics plugin: the shared mc-base plugin also exposes an **authenticated** `POST /command`
+  (bearer `controller-token`, same trust boundary as velocity-register) →
+  `Bukkit.dispatchCommand(consoleSender, cmd)`, controller proxies it. This is arbitrary remote
+  command execution — **never** drop the auth, and consider an allowlist/audit. Could be its own
+  small slice after the dashboard lands.
 - This likely means a **shared mc-base plugin finally pays for itself** (the cross-cutting thing
   Slice 2 deferred): it can host both the `/metrics` endpoint AND the stateless autosave-off /
   player-confine behavior currently duplicated per game.
