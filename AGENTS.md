@@ -21,7 +21,8 @@ spec → plan → implementation.
   (`minigames` ConfigMap → JSON), a second real game (`mc/minigame-parkour:dev`, a
   procedurally-generated void-world parkour that auto-`/done`s on win), and a written
   convention (`docs/minigame-convention.md`). No generator (deferred per roadmap).
-- **Slice 3 (WebUI) — NEXT, not started.**
+- **Slice 3 (WebUI — detailed metrics/observability) — NEXT, not started.** Startup times, pool
+  counts, per-instance TPS/health. See `docs/superpowers/SLICE-3-HANDOFF.md`.
 
 ## Roadmap
 
@@ -32,7 +33,9 @@ Build in dependency order, one slice per session:
 - **Slice 2 — Minigame image convention** (DONE). `FROM mc-base` + plugin + world (baked `.slime`
   OR runtime-generated), declared to the controller via the `minigames` ConfigMap. Generator
   still deferred (two games done by hand; build it only when a 3rd makes the repetition hurt).
-- **Slice 3 — WebUI.** Read-only dashboard over the controller's API. Invents nothing new.
+- **Slice 3 — WebUI (detailed metrics / observability).** Dashboard showing startup times, pool
+  counts, per-instance TPS/health — to diagnose issues and know live state at all times. Needs
+  backends to self-report metrics (likely a shared mc-base plugin) + controller read endpoints.
 
 After Slice 3 you have a working Hypixel-lite. Everything below was **deliberately deferred** —
 build each only when a concrete need shows up, each as its own spec→plan→session. Do not write

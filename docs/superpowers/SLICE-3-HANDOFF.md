@@ -2,9 +2,36 @@
 
 Slice 2 merged. The platform now runs **multiple games from config** and ships two real
 games (stub + procedural parkour) following a written image convention. Slice 3 = the
-**WebUI**: a read-only dashboard over the controller's existing API. Invents nothing new.
+**WebUI: a detailed metrics / observability dashboard** over the platform — so issues are
+easy to diagnose and the live state is always visible.
 
 For Slice 3: invoke `/ponytail`, then the brainstorming skill, and feed it this file.
+
+## Slice 3 requirement (from the user — this overrides the old "thin read-only dashboard" framing)
+
+The WebUI must show **truly detailed metrics**, not just a pod list. Explicitly asked for:
+startup times, counts, and **TPS** — and "so we can easily fix issues in the future and know
+the state at all times." So treat this as an **observability** slice, design around metrics:
+
+- **Counts / pool health:** per game — booting / ready / allocated / total, vs `poolSize`;
+  registered-with-Velocity count; allocate failures (503s).
+- **Startup times:** per pod, create → Ready latency (the controller already creates pods and
+  watches readiness, so it can timestamp this); also game-world load time (ASP logs
+  "World … loaded in Nms" / Paper "Done preparing level").
+- **TPS / health per running instance:** each Paper backend's TPS, MSPT, player count, uptime.
+  This is the part that **invents something new**: the metric has to come *from the backends*.
+  Options to weigh during brainstorming — a tiny metrics endpoint baked into mc-base (a shared
+  base plugin exposing `/metrics` JSON: TPS via `Bukkit.getTPS()`, MSPT, players, uptime, world
+  load time), scraped by the controller and aggregated; vs. per-pod Prometheus + Grafana (heavier,
+  probably over-engineered for this — ponytail will push back). Recommended lazy path: a shared
+  mc-base metrics plugin + controller aggregates + one static page. Decide in brainstorming.
+- This likely means a **shared mc-base plugin finally pays for itself** (the cross-cutting thing
+  Slice 2 deferred): it can host both the `/metrics` endpoint AND the stateless autosave-off /
+  player-confine behavior currently duplicated per game.
+
+Note: this is bigger than "invents nothing new." The controller needs new read endpoints
+(`GET /instances`, `GET /games`, `GET /metrics`) and the backends need to report their own
+health. Brainstorm scope carefully; it may split into "metrics pipeline" + "UI" sub-slices.
 
 ## What Slice 2 delivered (verified live on `kind`)
 
@@ -53,9 +80,15 @@ For Slice 3: invoke `/ponytail`, then the brainstorming skill, and feed it this 
   com.infernalsuite.asp:api:4.1.0-SNAPSHOT` (provided at runtime by the ASP server).
 - Keep game logic in Bukkit-free classes (`Course`, `Done`) so it unit-tests without paper-api.
 
-## Open Slice 3 question to settle first
+## Open Slice 3 questions to settle first (in brainstorming)
 
-- The dashboard needs a **read model**. Add a `GET /instances` (and maybe `/games`) JSON endpoint
-  to the controller, then a static read-only WebUI that polls it? Where does the UI run — a tiny
-  static page served by the controller, or its own pod/Service? Recommended start: one read
-  endpoint on the controller + a single static HTML/JS page it serves (no build step, no framework).
+1. **Metric source for TPS/health** — backends must self-report. Lazy path: a shared mc-base
+   plugin exposing `/metrics` JSON (TPS/MSPT/players/uptime/world-load-time), controller scrapes
+   + aggregates. Confirm vs. Prometheus/Grafana (likely over-engineered here).
+2. **Read model on the controller** — `GET /instances`, `/games`, `/metrics` JSON. The controller
+   already lists pods via `k8s.listPods("")`; startup time = timestamp create→Ready (it watches
+   readiness). Keep pod truth in k8s, read through the controller, not k8s directly from the UI.
+3. **UI delivery** — recommended start: one static HTML/JS page the controller serves and that
+   polls the JSON endpoints (no build step, no framework). Decide auto-refresh interval.
+4. **Scope split?** — "metrics pipeline" (backend `/metrics` + controller aggregation) vs. "UI"
+   may warrant two sub-slices; brainstorming should check whether one plan stays focused.
