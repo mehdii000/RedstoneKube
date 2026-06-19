@@ -1,0 +1,5 @@
+# Stateless backends: never autosave worlds to disk. The real game worlds are in-memory
+# slime worlds (no anvil at all); the default void overworld is never modified. Pods are
+# ephemeral, so nothing is meant to persist. 0 disables the periodic world save.
+ticks-per:
+  autosave: 0
