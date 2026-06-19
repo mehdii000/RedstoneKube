@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>mc·platform — tick room</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.iife.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.min.css">
+<style>
+  :root {
+    --bedrock:#15171c; --panel:#1b1e25; --panel-2:#21252e; --line:#2b313d;
+    --text:#cdd2db; --muted:#727b8b; --diamond:#4cc9d8;
+    --grass:#3fb950; --torch:#d9a443; --redstone:#e5484d; --slate:#6b7280;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--bedrock); color:var(--text);
+    font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:14px;
+    padding:0 0 4rem;
+    background-image:linear-gradient(rgba(255,255,255,.015) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(255,255,255,.015) 1px,transparent 1px);
+    background-size:28px 28px;
+  }
+  .eyebrow { font-family:"Silkscreen",monospace; font-size:.6rem; letter-spacing:.18em;
+             text-transform:uppercase; color:var(--muted); }
+
+  /* masthead */
+  .masthead { display:flex; align-items:center; gap:.85rem; padding:1.1rem 1.6rem;
+              border-bottom:1px solid var(--line); background:rgba(20,22,28,.7); }
+  .glyph { width:22px; height:22px; flex:none;
+           background:
+             conic-gradient(from 0deg, var(--grass) 0 25%, var(--torch) 0 50%,
+                            var(--diamond) 0 75%, var(--redstone) 0 100%);
+           box-shadow:0 0 0 2px var(--bedrock), 0 0 0 3px var(--line); }
+  .wordmark { font-family:"Silkscreen",monospace; font-size:.95rem; letter-spacing:.04em; }
+  .wordmark span { color:var(--muted); }
+  .conn { margin-left:auto; display:flex; align-items:center; gap:.5rem; }
+  .dot { width:9px; height:9px; background:var(--grass);
+         box-shadow:0 0 8px var(--grass); animation:beat 1.4s steps(1) infinite; }
+  .conn.down .dot { background:var(--redstone); box-shadow:0 0 8px var(--redstone); }
+  @keyframes beat { 0%,60%{opacity:1} 61%,100%{opacity:.25} }
+
+  main { max-width:1080px; margin:0 auto; padding:1.6rem; }
+
+  /* hero — the tick */
+  .hero { display:grid; grid-template-columns:1.3fr 1fr; gap:1rem; margin-bottom:1.6rem; }
+  .tickcard, .panel, .tile { background:var(--panel); border:1px solid var(--line); }
+  .tickcard { padding:1.2rem 1.4rem; }
+  .tps { font-size:3.4rem; font-weight:600; line-height:1; letter-spacing:-.02em;
+         color:var(--tpsc,var(--grass)); transition:color .4s; }
+  .tps small { font-size:1rem; color:var(--muted); font-weight:400; margin-left:.4rem; }
+  .ticks { display:flex; gap:3px; margin:1rem 0 .6rem; }
+  .tick { width:100%; height:18px; background:var(--panel-2); border:1px solid var(--line); }
+  .tick.on { background:var(--tpsc,var(--grass)); border-color:var(--tpsc,var(--grass));
+             box-shadow:0 0 6px -1px var(--tpsc,var(--grass)); }
+  .pulse { animation:pulse .5s ease-out; }
+  @keyframes pulse { from{opacity:.45} to{opacity:1} }
+  .tiles { display:grid; grid-template-rows:repeat(3,1fr); gap:1rem; }
+  .tile { padding:.9rem 1.1rem; display:flex; flex-direction:column; justify-content:center; }
+  .tile b { font-size:1.9rem; font-weight:600; }
+  .tile .d { color:var(--diamond); }
+
+  /* pools — instances as inventory blocks */
+  .section-label { margin:1.8rem 0 .8rem; display:flex; align-items:baseline; gap:.8rem; }
+  .legend { display:flex; gap:1rem; margin-left:auto; }
+  .legend span { display:flex; align-items:center; gap:.35rem; font-size:.7rem; color:var(--muted); }
+  .swatch { width:10px; height:10px; }
+  .running,.s-running{ --c:var(--grass);} .booting,.s-booting{ --c:var(--torch);}
+  .crashing,.s-crashing{ --c:var(--redstone);} .stopping,.s-stopping{ --c:var(--slate);}
+  .swatch.s-running{background:var(--grass)} .swatch.s-booting{background:var(--torch)}
+  .swatch.s-crashing{background:var(--redstone)} .swatch.s-stopping{background:var(--slate)}
+
+  .pools { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:1rem; }
+  .pool { padding:1rem; }
+  .pool-head { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:.2rem; }
+  .pool-name { font-family:"Silkscreen",monospace; font-size:.8rem; }
+  .pool-fill { font-size:1.05rem; font-weight:600; }
+  .pool-meta { font-size:.7rem; color:var(--muted); margin-bottom:.8rem; }
+  .slots { display:flex; flex-wrap:wrap; gap:5px; }
+  .slot { width:30px; height:30px; padding:0; cursor:pointer; position:relative;
+          background:color-mix(in srgb, var(--c) 22%, var(--panel-2));
+          border:1px solid var(--c); transition:transform .12s; }
+  .slot:hover { transform:translateY(-2px); }
+  .slot:focus-visible { outline:2px solid var(--diamond); outline-offset:2px; }
+  .slot.alloc::after { content:""; position:absolute; inset:7px;
+          background:var(--c); box-shadow:0 0 6px -1px var(--c); }
+  .slot.sel { outline:2px solid var(--diamond); outline-offset:2px; }
+
+  /* detail table */
+  table { width:100%; border-collapse:collapse; margin-top:.6rem; }
+  th { font-family:"Silkscreen",monospace; font-size:.58rem; letter-spacing:.1em;
+       text-transform:uppercase; color:var(--muted); text-align:left;
+       padding:.5rem .6rem; border-bottom:1px solid var(--line); }
+  td { padding:.5rem .6rem; border-bottom:1px solid var(--line); font-size:.82rem; }
+  tr.row { cursor:pointer; }
+  tr.row:hover td { background:var(--panel); }
+  tr.row.sel td { background:var(--panel-2); }
+  .badge { display:inline-block; padding:.08rem .5rem; font-size:.66rem;
+           font-family:"Silkscreen",monospace; letter-spacing:.04em;
+           color:var(--c); border:1px solid var(--c);
+           background:color-mix(in srgb, var(--c) 14%, transparent); }
+  .reason { color:var(--muted); font-size:.72rem; margin-left:.4rem; }
+  .num { font-variant-numeric:tabular-nums; }
+  .dim { color:var(--muted); }
+
+  /* log drawer */
+  .drawer { margin-top:1.4rem; padding:1.1rem; }
+  .drawer h2 { font-family:"Silkscreen",monospace; font-size:.74rem; margin:0 0 .8rem;
+               display:flex; align-items:center; gap:.6rem; }
+  #spark { margin:.4rem 0 1rem; }
+  pre { background:#0c0e12; border:1px solid var(--line); padding:.85rem; margin:0;
+        overflow:auto; max-height:20rem; font-size:.76rem; line-height:1.5; color:#aeb6c2; }
+  .empty { color:var(--muted); padding:2rem; text-align:center; border:1px dashed var(--line); }
+
+  @media (max-width:760px){ .hero{grid-template-columns:1fr} .tiles{grid-template-columns:repeat(3,1fr);grid-template-rows:none} }
+  @media (prefers-reduced-motion:reduce){ *{animation:none!important;transition:none!important} }
+</style>
+</head>
+<body x-data="dash()">
+  <header class="masthead">
+    <div class="glyph" aria-hidden="true"></div>
+    <div class="wordmark">mc<span>·</span>platform</div>
+    <div class="eyebrow" style="align-self:flex-end">tick room</div>
+    <div class="conn" :class="{down:!connected}">
+      <span class="dot"></span>
+      <span class="eyebrow" x-text="connected ? 'live' : 'reconnecting'"></span>
+    </div>
+  </header>
+
+  <main>
+    <!-- hero: the tick is the heartbeat of a Paper server (20/s) -->
+    <section class="hero">
+      <div class="tickcard" :style="`--tpsc:${tpsColor()}`">
+        <div class="eyebrow">cluster tick rate</div>
+        <div class="tps" x-text="clusterTps()"><small>/ 20 tps</small></div>
+        <div class="ticks" :class="{pulse:beat}">
+          <template x-for="n in 20" :key="n">
+            <div class="tick" :class="{on: n <= Math.round(clusterTpsNum())}"></div>
+          </template>
+        </div>
+        <div class="eyebrow" x-text="`mean over ${liveCount()} live backend${liveCount()===1?'':'s'}`"></div>
+      </div>
+      <div class="tiles">
+        <div class="tile"><span class="eyebrow">instances</span><b class="num" x-text="snap.instances.length"></b></div>
+        <div class="tile"><span class="eyebrow">players online</span><b class="num d" x-text="totalPlayers()"></b></div>
+        <div class="tile"><span class="eyebrow">allocated</span><b class="num" x-text="allocated()"></b></div>
+      </div>
+    </section>
+
+    <!-- pools: each instance is an inventory block, colored by lifecycle -->
+    <div class="section-label">
+      <span class="eyebrow">pools</span>
+      <div class="legend">
+        <span><i class="swatch s-running"></i>running</span>
+        <span><i class="swatch s-booting"></i>booting</span>
+        <span><i class="swatch s-crashing"></i>crashing</span>
+        <span><i class="swatch s-stopping"></i>stopping</span>
+      </div>
+    </div>
+
+    <template x-if="!snap.games.length">
+      <div class="empty">No games configured.</div>
+    </template>
+
+    <div class="pools">
+      <template x-for="g in snap.games" :key="g.name">
+        <div class="pool panel">
+          <div class="pool-head">
+            <span class="pool-name" x-text="g.name"></span>
+            <span class="pool-fill num" x-text="`${g.ready}/${g.poolSize}`"></span>
+          </div>
+          <div class="pool-meta" x-text="`${g.allocated} allocated · ${g.booting} booting · ${g.registered} registered · ${g.allocFailures} failed`"></div>
+          <div class="slots">
+            <template x-for="i in instancesOf(g.name)" :key="i.id">
+              <button class="slot" :class="[i.lifecycle.state, {alloc:i.alloc, sel:sel===i.id}]"
+                      @click="select(i.id)"
+                      :aria-label="`${i.id}: ${i.lifecycle.state}`"
+                      :title="`${i.id} — ${i.lifecycle.state}${i.lifecycle.reason?': '+i.lifecycle.reason:''}`"></button>
+            </template>
+            <span x-show="!instancesOf(g.name).length" class="dim" style="font-size:.74rem">empty pool</span>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- precise per-instance numbers -->
+    <div class="section-label"><span class="eyebrow">instances</span></div>
+    <table>
+      <thead><tr>
+        <th>instance</th><th>game</th><th>state</th><th>startup</th>
+        <th>tps</th><th>mspt</th><th>players</th><th>uptime</th>
+      </tr></thead>
+      <tbody>
+        <template x-for="i in snap.instances" :key="i.id">
+          <tr class="row" :class="{sel:sel===i.id}" @click="select(i.id)">
+            <td x-text="i.id"></td>
+            <td class="dim" x-text="i.game"></td>
+            <td :class="i.lifecycle.state">
+              <span class="badge" x-text="i.lifecycle.state"></span>
+              <span class="reason" x-text="i.lifecycle.reason"></span>
+            </td>
+            <td class="num" x-text="i.startupSeconds ? i.startupSeconds.toFixed(1)+'s' : '—'"></td>
+            <td class="num" x-text="i.metrics ? i.metrics.tps.toFixed(2) : (i.stale?'stale':'—')"></td>
+            <td class="num" x-text="i.metrics ? i.metrics.mspt.toFixed(1) : '—'"></td>
+            <td class="num" x-text="i.metrics ? i.metrics.players : '—'"></td>
+            <td class="num dim" x-text="i.metrics ? fmtUptime(i.metrics.uptimeSec) : '—'"></td>
+          </tr>
+        </template>
+        <template x-if="!snap.instances.length">
+          <tr><td colspan="8"><div class="empty">No instances running yet.</div></td></tr>
+        </template>
+      </tbody>
+    </table>
+
+    <!-- log drawer + live tps trace for the selected instance -->
+    <section class="drawer panel" x-show="sel" x-cloak>
+      <h2><span class="badge" :class="selState()" x-text="selState()"></span>
+          <span x-text="sel"></span></h2>
+      <div id="spark"></div>
+      <pre x-text="logs || 'fetching logs…'"></pre>
+    </section>
+  </main>
+
+<script>
+function dash() {
+  return {
+    snap: { games: [], instances: [] },
+    connected: false,
+    beat: false,
+    sel: null,
+    logs: '',
+    tps: [[],[]],
+    plot: null,
+    init() {
+      const es = new EventSource('/stream');
+      es.onmessage = e => {
+        this.snap = JSON.parse(e.data);
+        this.connected = true;
+        this.beat = false; this.$nextTick(()=> this.beat = true);
+        this.pushSpark();
+      };
+      es.onerror = () => { this.connected = false; };
+    },
+    instancesOf(game) { return this.snap.instances.filter(i=>i.game===game); },
+    live() { return this.snap.instances.filter(i=>i.metrics); },
+    liveCount() { return this.live().length; },
+    totalPlayers() { return this.live().reduce((s,i)=> s+i.metrics.players, 0); },
+    allocated() { return this.snap.instances.filter(i=>i.alloc).length; },
+    clusterTpsNum() {
+      const l = this.live(); if (!l.length) return 0;
+      return l.reduce((s,i)=>s+i.metrics.tps,0)/l.length;
+    },
+    clusterTps() { const l=this.live(); return l.length ? this.clusterTpsNum().toFixed(2) : '—'; },
+    tpsColor() {
+      const t = this.clusterTpsNum();
+      if (!this.live().length) return 'var(--slate)';
+      return t>=18 ? 'var(--grass)' : t>=15 ? 'var(--torch)' : 'var(--redstone)';
+    },
+    selState() { const i=this.snap.instances.find(x=>x.id===this.sel); return i? i.lifecycle.state : ''; },
+    fmtUptime(s) {
+      if (s==null) return '—';
+      const h=Math.floor(s/3600), m=Math.floor(s%3600/60);
+      return h ? `${h}h${m}m` : `${m}m`;
+    },
+    select(id) {
+      this.sel = id; this.tps = [[],[]];
+      if (this.plot) { this.plot.destroy(); this.plot = null; }
+      this.logs = '';
+      fetch(`/instances/${id}/logs?tail=200`).then(r=>r.text()).then(t=> this.logs = t)
+        .catch(()=> this.logs = 'logs unavailable');
+    },
+    pushSpark() {
+      if (!this.sel) return;
+      const inst = this.snap.instances.find(i=>i.id===this.sel);
+      if (!inst || !inst.metrics) return;
+      this.tps[0].push(Date.now()/1000); this.tps[1].push(inst.metrics.tps);
+      if (this.tps[0].length > 60) { this.tps[0].shift(); this.tps[1].shift(); }
+      if (!this.plot) {
+        this.plot = new uPlot({
+          width: Math.min(640, document.querySelector('.drawer').clientWidth-32), height:120,
+          scales:{ y:{ range:[0,20] }, x:{ time:true } },
+          axes:[{ stroke:'#727b8b' },{ stroke:'#727b8b' }],
+          series:[{}, { label:'TPS', stroke:'#4cc9d8', width:2, fill:'rgba(76,201,216,.08)' }],
+        }, this.tps, document.getElementById('spark'));
+      } else { this.plot.setData(this.tps); }
+    },
+  };
+}
+</script>
+<style>[x-cloak]{display:none!important}</style>
+</body>
+</html>
