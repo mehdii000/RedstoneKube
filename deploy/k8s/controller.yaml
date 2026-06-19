@@ -1,4 +1,12 @@
 apiVersion: v1
+kind: ConfigMap
+metadata: { name: minigames, namespace: mc }
+data:
+  games.json: |
+    [{"name":"stub","image":"mc/minigame-stub:dev","poolSize":1},
+     {"name":"parkour","image":"mc/minigame-parkour:dev","poolSize":1}]
+---
+apiVersion: v1
 kind: ServiceAccount
 metadata: { name: controller, namespace: mc }
 ---
@@ -33,13 +41,11 @@ spec:
           imagePullPolicy: IfNotPresent
           ports: [ { containerPort: 8080 } ]
           env:
-            - { name: GAME, value: stub }
-            - { name: POOL_SIZE, value: "1" }
-            - { name: MINIGAME_IMAGE, value: mc/minigame-stub:dev }
             - { name: VELOCITY_REGISTER_URL, value: http://velocity.mc.svc.cluster.local:8080 }
             - { name: CONTROLLER_URL, value: http://controller.mc.svc.cluster.local:8080 }
           volumeMounts:
             - { name: token, mountPath: /secret, readOnly: true }
+            - { name: config, mountPath: /config, readOnly: true }
           readinessProbe:
             httpGet: { path: /healthz, port: 8080 }
             initialDelaySeconds: 3
@@ -49,6 +55,9 @@ spec:
           secret:
             secretName: controller-token
             items: [ { key: controller.token, path: controller.token } ]
+        - name: config
+          configMap:
+            name: minigames
 ---
 apiVersion: v1
 kind: Service

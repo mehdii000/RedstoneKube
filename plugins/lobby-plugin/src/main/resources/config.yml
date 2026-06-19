@@ -1,4 +1,5 @@
-# Slice 1: the only real game is the stub placeholder.
+# Slice 2: two games. onClick maps target -> controller /allocate.
 controller: http://controller.mc.svc.cluster.local:8080
 minigames:
   - { name: Stub Game, material: GRASS_BLOCK, target: stub }
+  - { name: Parkour, material: QUARTZ_BLOCK, target: parkour }
