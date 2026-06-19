@@ -140,6 +140,20 @@ func (k *kube) listPods(game string) ([]Pod, error) {
 	return parsePodList(b)
 }
 
+// podLogs returns the last `tail` lines of a pod's log via the SA token.
+func (k *kube) podLogs(name string, tail int) (string, error) {
+	b, code, err := k.do("GET",
+		fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/log?tailLines=%d", namespace, name, tail),
+		"", "")
+	if err != nil {
+		return "", err
+	}
+	if code != 200 {
+		return "", fmt.Errorf("podLogs %s: %d %s", name, code, b)
+	}
+	return string(b), nil
+}
+
 // parsePodList maps a k8s PodList into the controller's Pod view.
 func parsePodList(body []byte) ([]Pod, error) {
 	var pl struct {

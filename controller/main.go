@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -184,19 +185,70 @@ func main() {
 		register:     v.register,
 		unregister:   v.unregister,
 		registered:   map[string]bool{},
+		metrics:      newMetricsCache(),
+		allocFails:   map[string]int{},
+		podLogs:      k.podLogs,
 	}
+	c.fetchMetrics = httpFetchMetrics(&http.Client{Timeout: 2 * time.Second})
 
 	go func() {
 		for range time.Tick(2 * time.Second) {
 			c.reconcile()
 		}
 	}()
+	go func() {
+		for range time.Tick(2 * time.Second) {
+			c.scrape()
+		}
+	}()
 
 	http.HandleFunc("/allocate", c.handleAllocate)
 	http.HandleFunc("/instances/", c.handleDone)
+	http.HandleFunc("/snapshot", c.handleSnapshot)
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
 	log.Printf("controller up: %d games", len(c.games))
 	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+// scrape pulls /metrics from every Ready pod (short timeout) into the cache.
+// Runs on the same cadence as reconcile; failures just leave the entry stale.
+func (c *Controller) scrape() {
+	pods, err := c.listPods("")
+	if err != nil {
+		log.Printf("scrape: list: %v", err)
+		return
+	}
+	for _, p := range pods {
+		if p.IP == "" {
+			continue
+		}
+		if m, ok := c.fetchMetrics(p.IP); ok {
+			c.metrics.put(p.Name, m)
+		}
+	}
+}
+
+// httpFetchMetrics is the production fetchMetrics: GET http://<ip>:9100/metrics.
+func httpFetchMetrics(hc *http.Client) func(string) (Metrics, bool) {
+	return func(ip string) (Metrics, bool) {
+		resp, err := hc.Get("http://" + ip + ":9100/metrics")
+		if err != nil {
+			return Metrics{}, false
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			return Metrics{}, false
+		}
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return Metrics{}, false
+		}
+		m, err := parseMetrics(b)
+		if err != nil {
+			return Metrics{}, false
+		}
+		return m, true
+	}
 }
 
 func envOr(k, def string) string {
