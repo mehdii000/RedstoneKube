@@ -7,12 +7,23 @@ Velocity, and deletes when the match ends. To add one:
 `FROM mc/mc-base:dev` and bake your plugin jar into `/server/plugins/`. mc-base
 already provides ASP, the forwarding secret mount, `online-mode=false`, and SWM.
 
-## 2. World
-Provide a world the plugin teleports joiners into — either:
+## 2. World — must be stateless (no anvil)
+Minigames are disposable; nothing should persist. Use an **in-memory slime world**, never a
+vanilla anvil world. Two ways:
 - **baked** a `.slime` world + `worlds.yml` under
   `/opt/config/plugins/SlimeWorldManager/` (see `images/minigame-stub`), or
-- **generated** at runtime via `WorldCreator` (see `images/minigame-parkour`,
-  which uses an empty `ChunkGenerator` for a void world).
+- **generated in memory** at runtime via ASP's API — `createEmptyWorld(name, false, props, null)`
+  (a `null` loader = temporary, never saved) then `loadWorld(world, true)`, and place blocks into
+  it (see `images/minigame-parkour`).
+
+mc-base already makes every backend stateless: the one world Paper forces through the anvil
+loader (the default overworld — ASP cannot replace it) is configured as an empty void with the
+nether disabled, and world autosave is off. Do **not** use `WorldCreator`/anvil worlds.
+
+## 2b. Keep players out of the void overworld
+Because the default overworld is empty void, a death would drop a player into nothing. Confine
+players to your game world: make them invulnerable on join and set the respawn location to your
+spawn (`PlayerRespawnEvent`). See `ParkourPlugin`.
 
 ## 3. Game-over contract
 When the match ends, POST `{CONTROLLER_URL}/instances/{INSTANCE_ID}/done`. Both

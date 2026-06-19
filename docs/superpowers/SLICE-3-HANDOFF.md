@@ -31,13 +31,26 @@ For Slice 3: invoke `/ponytail`, then the brainstorming skill, and feed it this 
   lobby `config.yml` compass entry. `name`/`target`/`game` label must all match.
 - `make up` brings up the whole stack; `make build-parkour` / `build-minigame-stub` build games.
 
+## Statelessness (established in Slice 2 — keep it)
+
+- Minigame **game worlds must be in-memory slime worlds**, never anvil/`WorldCreator`. Baked
+  `.slime` (stub) or ASP `createEmptyWorld(name,false,props,null)` + `loadWorld` (parkour, null
+  loader = temporary). Verified: the parkour pod has **no** `/server/parkour` dir.
+- mc-base makes every backend stateless: the default overworld (the one world Paper forces
+  through the anvil loader — ASP cannot replace it) is an empty **void** (`level-type=flat`,
+  void biome), nether disabled, world autosave off. It still serializes prepared air chunks to
+  the pod's **ephemeral** disk — that's scratch, not state; nothing persists across pods (no PVC).
+- Confine players: invulnerable on join + `PlayerRespawnEvent` → game spawn, so a death never
+  drops them into the void overworld. See `ParkourPlugin`.
+
 ## Gotchas hit in Slice 2 (don't repeat)
 
 - Backends must boot `online-mode=false` for Velocity modern forwarding (mc-base entrypoint
   handles it). If you see "Backend server is online-mode!" / "Unable to connect you to lobby",
   that's the cause.
-- Procedural worlds: an empty `ChunkGenerator(){}` via `WorldCreator` = void world, no files.
-  Paper still generates a default `world` per server (unused) — harmless, slight boot cost.
+- ASP API to compile against the in-memory world API: repo
+  `https://repo.infernalsuite.com/repository/maven-snapshots/`, `compileOnly
+  com.infernalsuite.asp:api:4.1.0-SNAPSHOT` (provided at runtime by the ASP server).
 - Keep game logic in Bukkit-free classes (`Course`, `Done`) so it unit-tests without paper-api.
 
 ## Open Slice 3 question to settle first
