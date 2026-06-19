@@ -27,6 +27,11 @@ type Controller struct {
 
 	mu         sync.Mutex // ponytail: one global lock; split per-game if many games churn concurrently
 	registered map[string]bool
+
+	metrics      *metricsCache
+	allocFails   map[string]int
+	fetchMetrics func(ip string) (Metrics, bool) // injectable for tests
+	podLogs      func(name string, tail int) (string, error)
 }
 
 func (c *Controller) handleAllocate(w http.ResponseWriter, r *http.Request) {

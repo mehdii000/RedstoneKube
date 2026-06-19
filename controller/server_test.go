@@ -56,6 +56,9 @@ func newTestController(pods []Pod) (*Controller, *struct {
 			return nil
 		},
 		registered: map[string]bool{},
+		metrics:    newMetricsCache(),
+		allocFails: map[string]int{},
+		podLogs:    func(string, int) (string, error) { return "", nil },
 	}
 	return c, rec
 }
