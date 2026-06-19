@@ -17,7 +17,11 @@ spec → plan → implementation.
   owns a warm pool of bare minigame Pods (k8s REST, no client-go), self-recycled via
   `POST /done`; velocity-register plugin registers backends live; compass click allocates
   + Connects. Placeholder game: `mc/minigame-stub:dev`.
-- **Slice 2 (Minigame image convention) — NEXT, not started.**
+- **Slice 2 (Minigame image convention) — DONE.** Config-driven multi-game controller
+  (`minigames` ConfigMap → JSON), a second real game (`mc/minigame-parkour:dev`, a
+  procedurally-generated void-world parkour that auto-`/done`s on win), and a written
+  convention (`docs/minigame-convention.md`). No generator (deferred per roadmap).
+- **Slice 3 (WebUI) — NEXT, not started.**
 
 ## Roadmap
 
@@ -25,8 +29,9 @@ Build in dependency order, one slice per session:
 
 - **Slice 1 — Controller + dynamic registration** (DONE). Go REST API → k8s → spawn/kill
   minigame pods → register with Velocity → wire the compass to send players.
-- **Slice 2 — Minigame image convention** (NEXT). `FROM mc-base` + plugin + baked `.slime`, declared
-  to the controller. Do NOT build a scaffolding/templating generator until 2-3 games hurt by hand.
+- **Slice 2 — Minigame image convention** (DONE). `FROM mc-base` + plugin + world (baked `.slime`
+  OR runtime-generated), declared to the controller via the `minigames` ConfigMap. Generator
+  still deferred (two games done by hand; build it only when a 3rd makes the repetition hurt).
 - **Slice 3 — WebUI.** Read-only dashboard over the controller's API. Invents nothing new.
 
 After Slice 3 you have a working Hypixel-lite. Everything below was **deliberately deferred** —

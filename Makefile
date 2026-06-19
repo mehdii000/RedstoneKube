@@ -9,7 +9,7 @@ GRADLE := docker run --rm -u $(shell id -u):$(shell id -g) \
   -e GRADLE_USER_HOME=/work/.gradle \
   -v $(PWD)/plugins/lobby-plugin:/work -w /work gradle:jdk21 gradle
 
-.PHONY: cluster down build-velocity build-velreg build-base lobby-world plugin build-lobby build-controller build-minigame-stub load apply up smoke
+.PHONY: cluster down build-velocity build-velreg build-base lobby-world plugin build-lobby build-controller build-minigame-stub build-parkour load apply up smoke
 
 # ---- cluster ----
 cluster:
@@ -69,12 +69,23 @@ build-minigame-stub: build-base
 	docker build -t mc/minigame-stub:dev images/minigame-stub
 	rm -f images/minigame-stub/stub-plugin.jar images/minigame-stub/game.slime
 
+PARKOUR_GRADLE := docker run --rm -u $(shell id -u):$(shell id -g) \
+  -e GRADLE_USER_HOME=/work/.gradle \
+  -v $(PWD)/plugins/parkour-game:/work -w /work gradle:jdk21 gradle
+
+build-parkour: build-base
+	$(PARKOUR_GRADLE) build
+	cp plugins/parkour-game/build/libs/parkour-plugin.jar images/minigame-parkour/parkour-plugin.jar
+	docker build -t mc/minigame-parkour:dev images/minigame-parkour
+	rm -f images/minigame-parkour/parkour-plugin.jar
+
 # ---- deploy ----
-load: build-velocity build-lobby build-controller build-minigame-stub
+load: build-velocity build-lobby build-controller build-minigame-stub build-parkour
 	kind load docker-image mc/velocity:dev --name $(CLUSTER)
 	kind load docker-image mc/lobby:dev --name $(CLUSTER)
 	kind load docker-image mc/controller:dev --name $(CLUSTER)
 	kind load docker-image mc/minigame-stub:dev --name $(CLUSTER)
+	kind load docker-image mc/minigame-parkour:dev --name $(CLUSTER)
 
 apply:
 	kubectl -n mc create secret generic velocity-forwarding \

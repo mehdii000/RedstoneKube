@@ -13,13 +13,25 @@ if [ -f /server/config/paper-global.yml ]; then
   sed -i "s|__SECRET__|${SECRET}|" /server/config/paper-global.yml
 fi
 
+# set_prop KEY VALUE — idempotently set a server.properties line (Paper merges the rest).
+set_prop() {
+  if [ -f /server/server.properties ] && grep -q "^$1=" /server/server.properties; then
+    sed -i "s|^$1=.*|$1=$2|" /server/server.properties
+  else
+    echo "$1=$2" >> /server/server.properties
+  fi
+}
+
 # Behind Velocity modern forwarding the backend must NOT do its own auth, or Velocity
-# rejects it with "Backend server is online-mode!". Paper merges missing keys, keeping this.
-if [ -f /server/server.properties ] && grep -q '^online-mode=' /server/server.properties; then
-  sed -i 's/^online-mode=.*/online-mode=false/' /server/server.properties
-else
-  echo 'online-mode=false' >> /server/server.properties
-fi
+# rejects it with "Backend server is online-mode!".
+set_prop online-mode false
+
+# Stateless backends: the default overworld is the one world Paper insists on creating via
+# the anvil loader (ASP can't replace it). Make it an empty void — no terrain generated — and
+# kill the nether/end so nothing else spins up. Real worlds are in-memory slime worlds.
+set_prop level-type minecraft:flat
+set_prop generator-settings '{"layers":[],"biome":"minecraft:the_void"}'
+set_prop allow-nether false
 
 cd /server
 # Aikar flags: https://docs.papermc.io/paper/aikar-flags
