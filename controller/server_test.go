@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func newTestController(pods []Pod) (*Controller, *struct {
@@ -55,10 +56,12 @@ func newTestController(pods []Pod) (*Controller, *struct {
 			rec.Unlock()
 			return nil
 		},
-		registered: map[string]bool{},
-		metrics:    newMetricsCache(),
-		allocFails: map[string]int{},
-		podLogs:    func(string, int) (string, error) { return "", nil },
+		registered:  map[string]bool{},
+		metrics:     newMetricsCache(),
+		allocFails:  map[string]int{},
+		podLogs:     func(string, int) (string, error) { return "", nil },
+		emptySince:  map[string]time.Time{},
+		idleTimeout: 5 * time.Minute,
 	}
 	return c, rec
 }
@@ -142,6 +145,32 @@ func TestReconcileRefillsEachGame(t *testing.T) {
 	if !strings.Contains(joined, "|stub|mc/minigame-stub:dev") ||
 		!strings.Contains(joined, "|parkour|mc/minigame-parkour:dev") {
 		t.Errorf("created with wrong game/image: %v", rec.created)
+	}
+}
+
+func TestReconcileReapsIdle(t *testing.T) {
+	c, rec := newTestController([]Pod{
+		{Name: "mg-stub-busy", Game: "stub", Ready: true, Alloc: true},
+		{Name: "mg-stub-idle", Game: "stub", Ready: true, Alloc: true},
+	})
+	c.registered["mg-stub-idle"] = true
+	c.metrics.put("mg-stub-busy", Metrics{Players: 2})
+	c.metrics.put("mg-stub-idle", Metrics{Players: 0})
+	// idle pod first seen empty well past the timeout.
+	c.emptySince["mg-stub-idle"] = time.Now().Add(-c.idleTimeout - time.Minute)
+
+	c.reconcile()
+
+	rec.Lock()
+	defer rec.Unlock()
+	if len(rec.deleted) != 1 || rec.deleted[0] != "mg-stub-idle" {
+		t.Fatalf("deleted = %v, want [mg-stub-idle]", rec.deleted)
+	}
+	if len(rec.unregistered) != 1 || rec.unregistered[0] != "mg-stub-idle" {
+		t.Fatalf("unregistered = %v, want [mg-stub-idle]", rec.unregistered)
+	}
+	if c.registered["mg-stub-idle"] {
+		t.Errorf("reaped pod still registered")
 	}
 }
 

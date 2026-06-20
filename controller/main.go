@@ -34,6 +34,9 @@ type Controller struct {
 	allocFails   map[string]int
 	fetchMetrics func(ip string) (Metrics, bool) // injectable for tests
 	podLogs      func(name string, tail int) (string, error)
+
+	emptySince  map[string]time.Time // name -> first seen allocated+empty
+	idleTimeout time.Duration        // reap allocated+empty instances after this
 }
 
 func (c *Controller) handleAllocate(w http.ResponseWriter, r *http.Request) {
@@ -180,6 +183,17 @@ func (c *Controller) reconcile() {
 			delete(c.registered, name)
 		}
 	}
+	// reap abandoned (allocated, empty past idleTimeout) instances; warm pool untouched.
+	fresh := func(n string) (Metrics, bool) { return c.metrics.get(n, metricsMaxAge) }
+	for _, name := range idleReap(all, fresh, c.emptySince, time.Now(), c.idleTimeout) {
+		if err := c.unregister(name); err != nil {
+			log.Printf("reap: unregister %s: %v", name, err)
+		}
+		delete(c.registered, name)
+		if err := c.deletePod(name); err != nil {
+			log.Printf("reap: delete %s: %v", name, err)
+		}
+	}
 }
 
 func randSuffix() string {
@@ -224,6 +238,8 @@ func main() {
 		metrics:      newMetricsCache(),
 		allocFails:   map[string]int{},
 		podLogs:      k.podLogs,
+		emptySince:   map[string]time.Time{},
+		idleTimeout:  parseIdleTimeout(envOr("IDLE_TIMEOUT", "5m")),
 	}
 	c.fetchMetrics = httpFetchMetrics(&http.Client{Timeout: 2 * time.Second})
 
@@ -287,6 +303,16 @@ func httpFetchMetrics(hc *http.Client) func(string) (Metrics, bool) {
 		}
 		return m, true
 	}
+}
+
+// parseIdleTimeout reads IDLE_TIMEOUT (a Go duration); falls back to 5m on a bad value.
+func parseIdleTimeout(s string) time.Duration {
+	d, err := time.ParseDuration(s)
+	if err != nil || d <= 0 {
+		log.Printf("IDLE_TIMEOUT %q invalid, using 5m", s)
+		return 5 * time.Minute
+	}
+	return d
 }
 
 func envOr(k, def string) string {
