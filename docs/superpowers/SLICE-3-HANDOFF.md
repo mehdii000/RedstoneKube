@@ -1,113 +1,65 @@
 # Slice 3 handoff (read this first in a fresh session)
 
-Slice 2 merged. The platform now runs **multiple games from config** and ships two real
-games (stub + procedural parkour) following a written image convention. Slice 3 = the
-**WebUI: a detailed metrics / observability dashboard** over the platform — so issues are
-easy to diagnose and the live state is always visible.
+Slice 3 shipped: a **detailed metrics / observability dashboard** over the platform, pushed live
+to the browser over SSE. Verified end-to-end on `kind` (controller `/snapshot` shows pools +
+scraped backend TPS/MSPT/startup; `/instances/{id}/logs`, `/stream`, `/ui/` all serve).
 
-For Slice 3: invoke `/ponytail`, then the brainstorming skill, and feed it this file.
+Spec: `docs/superpowers/specs/2026-06-19-slice-3-metrics-dashboard-design.md`.
+Plan: `docs/superpowers/plans/2026-06-19-slice-3-metrics-dashboard.md`.
 
-## Slice 3 requirement (from the user — this overrides the old "thin read-only dashboard" framing)
+## What Slice 3 delivered
 
-The WebUI must show **truly detailed metrics**, not just a pod list. Explicitly asked for:
-startup times, counts, and **TPS** — and "so we can easily fix issues in the future and know
-the state at all times." So treat this as an **observability** slice, design around metrics:
-
-- **Counts / pool health:** per game — booting / ready / allocated / total, vs `poolSize`;
-  registered-with-Velocity count; allocate failures (503s).
-- **Startup times:** per pod, create → Ready latency (the controller already creates pods and
-  watches readiness, so it can timestamp this); also game-world load time (ASP logs
-  "World … loaded in Nms" / Paper "Done preparing level").
-- **TPS / health per running instance:** each Paper backend's TPS, MSPT, player count, uptime.
-  This is the part that **invents something new**: the metric has to come *from the backends*.
-  Options to weigh during brainstorming — a tiny metrics endpoint baked into mc-base (a shared
-  base plugin exposing `/metrics` JSON: TPS via `Bukkit.getTPS()`, MSPT, players, uptime, world
-  load time), scraped by the controller and aggregated; vs. per-pod Prometheus + Grafana (heavier,
-  probably over-engineered for this — ponytail will push back). Recommended lazy path: a shared
-  mc-base metrics plugin + controller aggregates + one static page. Decide in brainstorming.
-- **Lifecycle state + reason (per instance):** show booting / running / crashing / stopping **with
-  the why**, directly. This is mostly **free** — surface what k8s already knows, no bespoke state
-  machine. The controller already hits the k8s pod API; parse more of the pod status it fetches:
-  `status.phase`, the `Ready` condition, `containerStatuses[].state.waiting|.terminated`
-  (`.reason` / `.message` / `.exitCode`), `restartCount` (crashing/CrashLoopBackOff), and
-  `metadata.deletionTimestamp` (= Terminating/stopping). For richer reasons, read pod **Events**
-  (`GET /api/v1/namespaces/mc/events?fieldSelector=involvedObject.name=<pod>`). Map these to the
-  four states in one small pure function (unit-testable, like `needed`/`pickAllocatable`).
-- **Logs in the UI:** controller proxies the k8s pod log endpoint
-  (`GET /api/v1/namespaces/mc/pods/<pod>/log?tailLines=N`) via the SA token it already has; add
-  `pods/log` (get) to the controller Role (RBAC). A tail-N snapshot is the lazy version; live
-  streaming (`follow=true` + SSE/websocket) is a later upgrade, not v1.
-- **Send commands (optional — user said "up to you", and it's read-WRITE so likely a follow-up,
-  not the read-only observability core):** needs a channel into the running server. Lazy + reuses
-  the metrics plugin: the shared mc-base plugin also exposes an **authenticated** `POST /command`
-  (bearer `controller-token`, same trust boundary as velocity-register) →
-  `Bukkit.dispatchCommand(consoleSender, cmd)`, controller proxies it. This is arbitrary remote
-  command execution — **never** drop the auth, and consider an allowlist/audit. Could be its own
-  small slice after the dashboard lands.
-- This likely means a **shared mc-base plugin finally pays for itself** (the cross-cutting thing
-  Slice 2 deferred): it can host both the `/metrics` endpoint AND the stateless autosave-off /
-  player-confine behavior currently duplicated per game.
-
-Note: this is bigger than "invents nothing new." The controller needs new read endpoints
-(`GET /instances`, `GET /games`, `GET /metrics`) and the backends need to report their own
-health. Brainstorm scope carefully; it may split into "metrics pipeline" + "UI" sub-slices.
-
-## What Slice 2 delivered (verified live on `kind`)
-
-- **Config-driven multi-game controller.** Games come from the `minigames` ConfigMap
-  (JSON: `[{name,image,poolSize}]`) mounted at `/config/games.json`; the controller runs the
-  warm-pool + Velocity-registration loop per game. `GAME`/`POOL_SIZE`/`MINIGAME_IMAGE` env are gone.
-- **Parkour** (`mc/minigame-parkour:dev`): a procedurally-generated **void world** (no baked
-  `.slime`) — `mc.parkour.Course.generate(seed,length)` builds the course, the plugin places it,
-  reaching the finish auto-POSTs `/done`. Seed = `INSTANCE_ID` hash (stable per pod).
-- **Convention doc**: `docs/minigame-convention.md` — the contract + stub/parkour as references.
-- Verified: both pools spawn + register; `/allocate {game:parkour}` returns the parkour pod;
-  unknown game → 404. (In-game compass→parkour→finish→recycle is the human acceptance test.)
+- **`mc-metrics` plugin** (`plugins/mc-metrics`) baked into **mc-base** → every `FROM mc/mc-base`
+  backend serves `GET :9100/metrics` JSON (`tps`, `mspt`, `players`, `maxPlayers`, `uptimeSec`,
+  `jvmStartupSec`) via the JDK `com.sun.net.httpserver`. Read-only, unauthenticated, cluster-internal.
+- **Controller read model + endpoints** (all in-memory, stdlib only):
+  - `GET /snapshot` → `{games:[{name,poolSize,booting,ready,allocated,total,registered,allocFailures}],
+    instances:[{id,game,address,alloc,lifecycle{state,reason},startupSeconds,metrics|null,stale}]}`.
+  - `GET /stream` → the same snapshot over **SSE** (`text/event-stream`), pushed on connect + every 2s.
+  - `GET /instances/{id}/logs?tail=N` → proxies the k8s `pods/<id>/log` endpoint (needs `pods/log` RBAC).
+  - `GET /ui/` → an embedded single-page dashboard (`//go:embed index.html`; Alpine.js + uPlot via CDN,
+    native `EventSource`, no build step).
+  - A scrape ticker (2s) pulls every Ready pod's `:9100/metrics` into a `metricsCache` (stale after 6s).
+- **`lifecycle(pod) → {state,reason}`** pure fn maps k8s pod status → booting/running/crashing/stopping
+  (`controller/lifecycle.go`, unit-tested). **`startupSeconds(pod)`** = create→Ready, derived from pod
+  timestamps (stateless — no controller bookkeeping).
+- Per-game **alloc-failure (503) counter**.
+- **Idle-game reaping** (`controller/reap.go`): `reconcile()` reaps an instance that is **allocated**
+  and has reported **0 players** with fresh metrics for ≥ `IDLE_TIMEOUT` (env, default `5m`). Warm
+  pool instances (`Alloc==false`) are never candidates, so joins stay fast; stale metrics never reap.
+  Reuses the existing reconcile tick + `mu`; teardown is identical to `POST /done`.
 
 ## Carryover facts (don't re-derive)
 
-- Controller REST API (`:8080`): `POST /allocate {game}` → `{server,address}` (400 missing game,
-  404 unknown game, 503 none ready); `POST /instances/{id}/done`; `GET /healthz`. There is **no
-  list/status endpoint yet** — Slice 3 will likely need one (e.g. `GET /instances` or `/games`).
-  The controller already lists pods via `k8s.listPods("")` (all minigames); a read handler is small.
-- Controller env: `VELOCITY_REGISTER_URL`, `CONTROLLER_URL`, `GAMES_CONFIG` (default `/config/games.json`).
-- Pod truth lives in k8s (labels `app=minigame, game=<g>, alloc=<bool>`), not in controller memory
-  beyond the `registered` map. A dashboard should read through the controller, not k8s directly.
-- Add a game = new image (per `docs/minigame-convention.md`) + `minigames` ConfigMap entry +
-  lobby `config.yml` compass entry. `name`/`target`/`game` label must all match.
-- `make up` brings up the whole stack; `make build-parkour` / `build-minigame-stub` build games.
+- **Metrics port is 9100** everywhere (plugin bind + controller scrape). Backends `EXPOSE 25565 9100`.
+- Controller state added in Slice 3 is **in-memory** (metrics cache, alloc-failure counts) — lost on
+  controller restart; that's fine for a dashboard, don't add a DB.
+- Pod truth still lives in k8s; the UI reads **only through the controller** (`/snapshot` `/stream`),
+  never k8s directly. Lifecycle + startup come from the pod object the controller already lists.
+- View the dashboard: `kubectl -n mc port-forward svc/controller 8080:8080` → `http://localhost:8080/ui/`.
+  The controller Service is ClusterIP (no LoadBalancer added — port-forward is the lazy access path).
+- Existing endpoints unchanged: `POST /allocate`, `POST /instances/{id}/done`, `GET /healthz`. The
+  `/instances/` route now dispatches `/done` vs `/logs` (`handleInstances`).
 
-## Statelessness (established in Slice 2 — keep it)
+## Gotchas hit in Slice 3 (don't repeat)
 
-- Minigame **game worlds must be in-memory slime worlds**, never anvil/`WorldCreator`. Baked
-  `.slime` (stub) or ASP `createEmptyWorld(name,false,props,null)` + `loadWorld` (parkour, null
-  loader = temporary). Verified: the parkour pod has **no** `/server/parkour` dir.
-- mc-base makes every backend stateless: the default overworld (the one world Paper forces
-  through the anvil loader — ASP cannot replace it) is an empty **void** (`level-type=flat`,
-  void biome), nether disabled, world autosave off. It still serializes prepared air chunks to
-  the pod's **ephemeral** disk — that's scratch, not state; nothing persists across pods (no PVC).
-- Confine players: invulnerable on join + `PlayerRespawnEvent` → game spawn, so a death never
-  drops them into the void overworld. See `ParkourPlugin`.
+- Java `String.format("%.1f", 6.25)` rounds HALF_UP → `6.3`, not `6.2`. Watch metric-formatting tests.
+- `build-base` now builds + bakes `metrics-plugin.jar`; rebuilding any game (`build-minigame-*`,
+  `build-lobby`) pulls the new mc-base automatically. After changing controller/plugin code on a live
+  cluster: `make load && make apply && kubectl -n mc rollout restart deploy/controller` and recycle
+  minigame pods (`kubectl -n mc delete pods -l app=minigame`) so they land on the new mc-base.
 
-## Gotchas hit in Slice 2 (don't repeat)
+## Deferred (each its own future slice — don't pre-plan)
 
-- Backends must boot `online-mode=false` for Velocity modern forwarding (mc-base entrypoint
-  handles it). If you see "Backend server is online-mode!" / "Unable to connect you to lobby",
-  that's the cause.
-- ASP API to compile against the in-memory world API: repo
-  `https://repo.infernalsuite.com/repository/maven-snapshots/`, `compileOnly
-  com.infernalsuite.asp:api:4.1.0-SNAPSHOT` (provided at runtime by the ASP server).
-- Keep game logic in Bukkit-free classes (`Course`, `Done`) so it unit-tests without paper-api.
+- **`POST /command`** into backends (read-WRITE console RCE) — needs bearer auth + allowlist + audit.
+  Lazy home: extend the `mc-metrics` plugin with an authenticated `POST /command` →
+  `Bukkit.dispatchCommand`; controller proxies it. Keep the auth — it's the security boundary.
+- Prometheus/Grafana; live (follow) log streaming; server-side metric history; consolidating the
+  per-game autosave/confine behavior into the shared mc-base plugin.
 
-## Open Slice 3 questions to settle first (in brainstorming)
+## Starting the next slice
 
-1. **Metric source for TPS/health** — backends must self-report. Lazy path: a shared mc-base
-   plugin exposing `/metrics` JSON (TPS/MSPT/players/uptime/world-load-time), controller scrapes
-   + aggregates. Confirm vs. Prometheus/Grafana (likely over-engineered here).
-2. **Read model on the controller** — `GET /instances`, `/games`, `/metrics` JSON. The controller
-   already lists pods via `k8s.listPods("")`; startup time = timestamp create→Ready (it watches
-   readiness). Keep pod truth in k8s, read through the controller, not k8s directly from the UI.
-3. **UI delivery** — recommended start: one static HTML/JS page the controller serves and that
-   polls the JSON endpoints (no build step, no framework). Decide auto-refresh interval.
-4. **Scope split?** — "metrics pipeline" (backend `/metrics` + controller aggregation) vs. "UI"
-   may warrant two sub-slices; brainstorming should check whether one plan stays focused.
+1. Invoke `/ponytail`, then the brainstorming skill.
+2. Pick the next increment from the roadmap in `AGENTS.md` (multi-replica Velocity sync, central world
+   store, global persistence, or `POST /command`) based on a concrete need — not speculatively.
+3. One slice per session: spec → plan → execute, `--no-ff` merge, keep the branch.

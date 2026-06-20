@@ -140,19 +140,52 @@ func (k *kube) listPods(game string) ([]Pod, error) {
 	return parsePodList(b)
 }
 
+// podLogs returns the last `tail` lines of a pod's log via the SA token.
+func (k *kube) podLogs(name string, tail int) (string, error) {
+	b, code, err := k.do("GET",
+		fmt.Sprintf("/api/v1/namespaces/%s/pods/%s/log?tailLines=%d", namespace, name, tail),
+		"", "")
+	if err != nil {
+		return "", err
+	}
+	if code != 200 {
+		return "", fmt.Errorf("podLogs %s: %d %s", name, code, b)
+	}
+	return string(b), nil
+}
+
 // parsePodList maps a k8s PodList into the controller's Pod view.
 func parsePodList(body []byte) ([]Pod, error) {
 	var pl struct {
 		Items []struct {
 			Metadata struct {
-				Name   string            `json:"name"`
-				Labels map[string]string `json:"labels"`
+				Name              string            `json:"name"`
+				Labels            map[string]string `json:"labels"`
+				CreationTimestamp time.Time         `json:"creationTimestamp"`
+				DeletionTimestamp *time.Time        `json:"deletionTimestamp"`
 			} `json:"metadata"`
 			Status struct {
 				PodIP      string `json:"podIP"`
 				Conditions []struct {
-					Type, Status string
+					Type, Status       string
+					LastTransitionTime time.Time `json:"lastTransitionTime"`
 				} `json:"conditions"`
+				ContainerStatuses []struct {
+					RestartCount int `json:"restartCount"`
+					State        struct {
+						Waiting    *struct{ Reason, Message string } `json:"waiting"`
+						Terminated *struct {
+							Reason, Message string
+							ExitCode        int `json:"exitCode"`
+						} `json:"terminated"`
+					} `json:"state"`
+					LastState struct {
+						Terminated *struct {
+							Reason, Message string
+							ExitCode        int `json:"exitCode"`
+						} `json:"terminated"`
+					} `json:"lastState"`
+				} `json:"containerStatuses"`
 			} `json:"status"`
 		} `json:"items"`
 	}
@@ -161,19 +194,33 @@ func parsePodList(body []byte) ([]Pod, error) {
 	}
 	out := make([]Pod, 0, len(pl.Items))
 	for _, it := range pl.Items {
-		ready := false
+		p := Pod{
+			Name:     it.Metadata.Name,
+			Game:     it.Metadata.Labels["game"],
+			IP:       it.Status.PodIP,
+			Alloc:    it.Metadata.Labels["alloc"] == "true",
+			Created:  it.Metadata.CreationTimestamp,
+			Deleting: it.Metadata.DeletionTimestamp != nil,
+		}
 		for _, c := range it.Status.Conditions {
 			if c.Type == "Ready" && c.Status == "True" {
-				ready = true
+				p.Ready = true
+				p.ReadyAt = c.LastTransitionTime
 			}
 		}
-		out = append(out, Pod{
-			Name:  it.Metadata.Name,
-			Game:  it.Metadata.Labels["game"],
-			IP:    it.Status.PodIP,
-			Ready: ready,
-			Alloc: it.Metadata.Labels["alloc"] == "true",
-		})
+		if len(it.Status.ContainerStatuses) > 0 {
+			cs := it.Status.ContainerStatuses[0]
+			p.Restarts = cs.RestartCount
+			if cs.State.Waiting != nil {
+				p.WaitReason, p.WaitMsg = cs.State.Waiting.Reason, cs.State.Waiting.Message
+			}
+			if t := cs.LastState.Terminated; t != nil {
+				p.TermReason, p.TermMsg, p.TermExit = t.Reason, t.Message, t.ExitCode
+			} else if t := cs.State.Terminated; t != nil {
+				p.TermReason, p.TermMsg, p.TermExit = t.Reason, t.Message, t.ExitCode
+			}
+		}
+		out = append(out, p)
 	}
 	return out, nil
 }

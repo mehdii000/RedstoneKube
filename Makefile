@@ -37,11 +37,18 @@ build-velocity: build-velreg
 	  images/velocity
 	rm -f images/velocity/velocity-register.jar
 
+METRICS_GRADLE := docker run --rm -u $(shell id -u):$(shell id -g) \
+  -e GRADLE_USER_HOME=/work/.gradle \
+  -v $(PWD)/plugins/mc-metrics:/work -w /work gradle:jdk21 gradle
+
 build-base:
+	$(METRICS_GRADLE) build
+	cp plugins/mc-metrics/build/libs/metrics-plugin.jar images/mc-base/metrics-plugin.jar
 	docker build -t mc/mc-base:dev \
 	  --build-arg JRE_TAG=$(JRE_TAG) --build-arg ASP_URL=$(ASP_URL) \
 	  --build-arg ASP_PLUGIN_URL=$(ASP_PLUGIN_URL) \
 	  images/mc-base
+	rm -f images/mc-base/metrics-plugin.jar
 
 lobby-world:
 	./images/mc-base/make-lobby-world.sh

@@ -5,9 +5,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +29,14 @@ type Controller struct {
 
 	mu         sync.Mutex // ponytail: one global lock; split per-game if many games churn concurrently
 	registered map[string]bool
+
+	metrics      *metricsCache
+	allocFails   map[string]int
+	fetchMetrics func(ip string) (Metrics, bool) // injectable for tests
+	podLogs      func(name string, tail int) (string, error)
+
+	emptySince  map[string]time.Time // name -> first seen allocated+empty
+	idleTimeout time.Duration        // reap allocated+empty instances after this
 }
 
 func (c *Controller) handleAllocate(w http.ResponseWriter, r *http.Request) {
@@ -51,6 +61,7 @@ func (c *Controller) handleAllocate(w http.ResponseWriter, r *http.Request) {
 	}
 	p := pickAllocatable(pods, body.Game)
 	if p == nil {
+		c.allocFails[body.Game]++
 		http.Error(w, "no ready instance", http.StatusServiceUnavailable)
 		return
 	}
@@ -62,6 +73,40 @@ func (c *Controller) handleAllocate(w http.ResponseWriter, r *http.Request) {
 		"server":  p.Name,
 		"address": p.IP + ":25565",
 	})
+}
+
+// handleInstances routes /instances/{id}/{done|logs}.
+func (c *Controller) handleInstances(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/instances/")
+	switch {
+	case strings.HasSuffix(rest, "/done"):
+		c.handleDone(w, r)
+	case strings.HasSuffix(rest, "/logs"):
+		c.handleLogs(w, r)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func (c *Controller) handleLogs(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/instances/"), "/logs")
+	if id == "" || strings.Contains(id, "/") {
+		http.Error(w, "bad instance id", http.StatusBadRequest)
+		return
+	}
+	tail := 200
+	if v := r.URL.Query().Get("tail"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			tail = n
+		}
+	}
+	out, err := c.podLogs(id, tail)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Write([]byte(out))
 }
 
 func (c *Controller) handleDone(w http.ResponseWriter, r *http.Request) {
@@ -138,6 +183,17 @@ func (c *Controller) reconcile() {
 			delete(c.registered, name)
 		}
 	}
+	// reap abandoned (allocated, empty past idleTimeout) instances; warm pool untouched.
+	fresh := func(n string) (Metrics, bool) { return c.metrics.get(n, metricsMaxAge) }
+	for _, name := range idleReap(all, fresh, c.emptySince, time.Now(), c.idleTimeout) {
+		if err := c.unregister(name); err != nil {
+			log.Printf("reap: unregister %s: %v", name, err)
+		}
+		delete(c.registered, name)
+		if err := c.deletePod(name); err != nil {
+			log.Printf("reap: delete %s: %v", name, err)
+		}
+	}
 }
 
 func randSuffix() string {
@@ -179,19 +235,84 @@ func main() {
 		register:     v.register,
 		unregister:   v.unregister,
 		registered:   map[string]bool{},
+		metrics:      newMetricsCache(),
+		allocFails:   map[string]int{},
+		podLogs:      k.podLogs,
+		emptySince:   map[string]time.Time{},
+		idleTimeout:  parseIdleTimeout(envOr("IDLE_TIMEOUT", "5m")),
 	}
+	c.fetchMetrics = httpFetchMetrics(&http.Client{Timeout: 2 * time.Second})
 
 	go func() {
 		for range time.Tick(2 * time.Second) {
 			c.reconcile()
 		}
 	}()
+	go func() {
+		for range time.Tick(2 * time.Second) {
+			c.scrape()
+		}
+	}()
 
 	http.HandleFunc("/allocate", c.handleAllocate)
-	http.HandleFunc("/instances/", c.handleDone)
+	http.HandleFunc("/instances/", c.handleInstances)
+	http.HandleFunc("/snapshot", c.handleSnapshot)
+	http.HandleFunc("/stream", c.handleStream)
+	http.HandleFunc("/ui/", c.handleUI)
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
 	log.Printf("controller up: %d games", len(c.games))
 	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+// scrape pulls /metrics from every Ready pod (short timeout) into the cache.
+// Runs on the same cadence as reconcile; failures just leave the entry stale.
+func (c *Controller) scrape() {
+	pods, err := c.listPods("")
+	if err != nil {
+		log.Printf("scrape: list: %v", err)
+		return
+	}
+	for _, p := range pods {
+		if p.IP == "" {
+			continue
+		}
+		if m, ok := c.fetchMetrics(p.IP); ok {
+			c.metrics.put(p.Name, m)
+		}
+	}
+}
+
+// httpFetchMetrics is the production fetchMetrics: GET http://<ip>:9100/metrics.
+func httpFetchMetrics(hc *http.Client) func(string) (Metrics, bool) {
+	return func(ip string) (Metrics, bool) {
+		resp, err := hc.Get("http://" + ip + ":9100/metrics")
+		if err != nil {
+			return Metrics{}, false
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			return Metrics{}, false
+		}
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return Metrics{}, false
+		}
+		m, err := parseMetrics(b)
+		if err != nil {
+			return Metrics{}, false
+		}
+		return m, true
+	}
+}
+
+// parseIdleTimeout reads IDLE_TIMEOUT (a Go duration); falls back to 5m on a bad value.
+func parseIdleTimeout(s string) time.Duration {
+	d, err := time.ParseDuration(s)
+	if err != nil || d <= 0 {
+		log.Printf("IDLE_TIMEOUT %q invalid, using 5m", s)
+		return 5 * time.Minute
+	}
+	return d
 }
 
 func envOr(k, def string) string {

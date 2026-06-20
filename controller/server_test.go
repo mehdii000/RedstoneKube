@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func newTestController(pods []Pod) (*Controller, *struct {
@@ -55,7 +56,12 @@ func newTestController(pods []Pod) (*Controller, *struct {
 			rec.Unlock()
 			return nil
 		},
-		registered: map[string]bool{},
+		registered:  map[string]bool{},
+		metrics:     newMetricsCache(),
+		allocFails:  map[string]int{},
+		podLogs:     func(string, int) (string, error) { return "", nil },
+		emptySince:  map[string]time.Time{},
+		idleTimeout: 5 * time.Minute,
 	}
 	return c, rec
 }
@@ -139,5 +145,58 @@ func TestReconcileRefillsEachGame(t *testing.T) {
 	if !strings.Contains(joined, "|stub|mc/minigame-stub:dev") ||
 		!strings.Contains(joined, "|parkour|mc/minigame-parkour:dev") {
 		t.Errorf("created with wrong game/image: %v", rec.created)
+	}
+}
+
+func TestReconcileReapsIdle(t *testing.T) {
+	c, rec := newTestController([]Pod{
+		{Name: "mg-stub-busy", Game: "stub", Ready: true, Alloc: true},
+		{Name: "mg-stub-idle", Game: "stub", Ready: true, Alloc: true},
+	})
+	c.registered["mg-stub-idle"] = true
+	c.metrics.put("mg-stub-busy", Metrics{Players: 2})
+	c.metrics.put("mg-stub-idle", Metrics{Players: 0})
+	// idle pod first seen empty well past the timeout.
+	c.emptySince["mg-stub-idle"] = time.Now().Add(-c.idleTimeout - time.Minute)
+
+	c.reconcile()
+
+	rec.Lock()
+	defer rec.Unlock()
+	if len(rec.deleted) != 1 || rec.deleted[0] != "mg-stub-idle" {
+		t.Fatalf("deleted = %v, want [mg-stub-idle]", rec.deleted)
+	}
+	if len(rec.unregistered) != 1 || rec.unregistered[0] != "mg-stub-idle" {
+		t.Fatalf("unregistered = %v, want [mg-stub-idle]", rec.unregistered)
+	}
+	if c.registered["mg-stub-idle"] {
+		t.Errorf("reaped pod still registered")
+	}
+}
+
+func TestHandleLogs(t *testing.T) {
+	c, _ := newTestController([]Pod{{Name: "mg-stub-1", Game: "stub"}})
+	c.podLogs = func(name string, tail int) (string, error) {
+		if name != "mg-stub-1" || tail != 50 {
+			t.Fatalf("podLogs(%q,%d)", name, tail)
+		}
+		return "line1\nline2\n", nil
+	}
+	rec := httptest.NewRecorder()
+	c.handleInstances(rec, httptest.NewRequest("GET", "/instances/mg-stub-1/logs?tail=50", nil))
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "line2") {
+		t.Fatalf("code=%d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAllocFailureCounted(t *testing.T) {
+	c, _ := newTestController(nil) // no pods => no allocatable => 503
+	rec := httptest.NewRecorder()
+	c.handleAllocate(rec, httptest.NewRequest("POST", "/allocate", strings.NewReader(`{"game":"stub"}`)))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("code = %d, want 503", rec.Code)
+	}
+	if c.allocFails["stub"] != 1 {
+		t.Errorf("allocFails[stub] = %d, want 1", c.allocFails["stub"])
 	}
 }

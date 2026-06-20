@@ -1,0 +1,4 @@
+name: MetricsExporter
+version: 0.1.0
+main: mc.metrics.MetricsPlugin
+api-version: '1.21'
