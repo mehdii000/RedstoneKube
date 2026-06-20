@@ -85,3 +85,6 @@ the pool refills. Warm pool instances are never reaped, so joins stay fast.
 | `lobby-world` | generate `worlds/lobby.slime` |
 | `load` / `apply` | load images into kind / apply manifests + secret |
 | `up` / `smoke` | full bring-up / smoke ping |
+| `reload` | rebuild+load all images, re-apply, restart deployments, recycle minigames |
+| `reload-controller` | fast loop: rebuild+load the controller only, restart it |
+| `dash` | port-forward the metrics dashboard to http://localhost:8080/ui/ |

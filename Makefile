@@ -9,7 +9,7 @@ GRADLE := docker run --rm -u $(shell id -u):$(shell id -g) \
   -e GRADLE_USER_HOME=/work/.gradle \
   -v $(PWD)/plugins/lobby-plugin:/work -w /work gradle:jdk21 gradle
 
-.PHONY: cluster down build-velocity build-velreg build-base lobby-world plugin build-lobby build-controller build-minigame-stub build-parkour load apply up smoke
+.PHONY: cluster down build-velocity build-velreg build-base lobby-world plugin build-lobby build-controller build-minigame-stub build-parkour load apply up smoke reload reload-controller dash
 
 # ---- cluster ----
 cluster:
@@ -110,3 +110,21 @@ up: cluster load apply
 smoke:
 	@IP=$$(kubectl -n mc get svc velocity -o jsonpath='{.status.loadBalancer.ingress[0].ip}'); \
 	  echo "pinging $$IP:25565"; go run ./tools/smoke $$IP 25565
+
+# ---- dev loop ----
+# Full reload: rebuild+load every image, re-apply, restart all deployments, recycle minigames.
+reload: load apply
+	kubectl -n mc rollout restart deploy
+	-kubectl -n mc delete pods -l app=minigame
+	@echo "reloaded: images rebuilt+loaded, deployments restarted, minigames recycled"
+
+# Fast loop for controller-only changes (no plugin/world/minigame rebuild).
+reload-controller: build-controller
+	kind load docker-image mc/controller:dev --name $(CLUSTER)
+	kubectl -n mc rollout restart deploy/controller
+	@echo "controller reloaded"
+
+# Port-forward the metrics dashboard (blocks until Ctrl-C).
+dash:
+	@echo "dashboard: http://localhost:8080/ui/  (Ctrl-C to stop)"
+	kubectl -n mc port-forward svc/controller 8080:8080
