@@ -24,6 +24,10 @@ Plan: `docs/superpowers/plans/2026-06-19-slice-3-metrics-dashboard.md`.
   (`controller/lifecycle.go`, unit-tested). **`startupSeconds(pod)`** = create→Ready, derived from pod
   timestamps (stateless — no controller bookkeeping).
 - Per-game **alloc-failure (503) counter**.
+- **Idle-game reaping** (`controller/reap.go`): `reconcile()` reaps an instance that is **allocated**
+  and has reported **0 players** with fresh metrics for ≥ `IDLE_TIMEOUT` (env, default `5m`). Warm
+  pool instances (`Alloc==false`) are never candidates, so joins stay fast; stale metrics never reap.
+  Reuses the existing reconcile tick + `mu`; teardown is identical to `POST /done`.
 
 ## Carryover facts (don't re-derive)
 
